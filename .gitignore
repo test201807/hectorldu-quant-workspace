@@ -1,0 +1,97 @@
+# ============================================================
+# .gitignore — Quant Workspace (monorepo)
+# ============================================================
+
+# === Python runtime ===
+__pycache__/
+*.py[cod]
+*.pyo
+*.pyd
+*.egg-info/
+*.eggs/
+dist/
+build/
+
+# === Virtual environments ===
+.venv/
+venv/
+venv1/
+env/
+**/btc_env/
+**/Lib/site-packages/
+
+# === Jupyter ===
+.ipynb_checkpoints/
+
+# === Data (generated / downloaded — never version) ===
+*.parquet
+*.csv
+*.csv.gz
+*.tsv
+*.h5
+*.hdf5
+*.feather
+*.arrow
+*.pkl
+*.pickle
+data/
+**/data/
+
+# === Heavy binaries / archives ===
+*.zip
+*.tar.gz
+*.7z
+*.rar
+*.gz
+
+# === Outputs / artifacts / logs (reproducible) ===
+outputs/
+**/outputs/
+artifacts/
+**/artifacts/
+logs/
+**/logs/
+diagnostics_global/
+**/diagnostics_global/
+restore/
+**/restore/
+backups/
+**/backups/
+bulk_data/
+**/bulk_data/
+reports/
+**/reports/
+
+# === Binary documents (keep outside Git) ===
+*.pdf
+*.docx
+*.xlsx
+*.pptx
+
+# === Credentials / secrets ===
+.env
+*.key
+*.pem
+*.secret
+credentials.json
+
+# === OS / IDE ===
+.DS_Store
+Thumbs.db
+.vscode/
+.idea/
+*.swp
+*~
+
+# === Temp / misc ===
+tmp/
+*.tmp
+*.log
+pipeline.log
+nul
+
+# === Claude / audit metadata ===
+.claude/
+_audit_out/
+_archive/
+_inbox/

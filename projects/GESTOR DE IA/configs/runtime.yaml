@@ -1,0 +1,15 @@
+﻿model: gpt-5.2
+model_snapshot: gpt-5.2-2025-12-11
+rebalance_freq: M
+top_k: 5
+backtest_years: 5
+
+# Riesgo
+max_weight: 0.25
+target_vol_annual: 0.15
+vol_lookback_months: 12
+tcost_bps: 5
+
+# Datos / look-ahead
+min_report_lag_days: 0
+use_publish_date_if_available: true
