@@ -90,6 +90,16 @@ tmp/
 pipeline.log
 nul
 
+# === Junctions (root-level symlinks for backward compatibility) ===
+/BTC_ANALIST
+/GESTOR DE IA
+/MT5_Data_Extraction
+/TWF
+
+# === Non-code dirs (workshop reports, research logs) ===
+workshop_report/
+research_logs/
+
 # === Claude / audit metadata ===
 .claude/
 _audit_out/
