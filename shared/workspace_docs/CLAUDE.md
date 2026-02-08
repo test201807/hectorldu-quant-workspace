@@ -4,7 +4,37 @@ This file provides guidance to Claude Code (claude.ai/code) when working with co
 
 ## Overview
 
-Quant is a multi-project quantitative analysis workspace (Python, notebooks). It contains four independent sub-projects, each with its own virtual environment and data pipeline. All interactive work happens in Jupyter notebooks with supporting library code in `src/` directories.
+Quant is a multi-project quantitative analysis workspace (Python, notebooks). It contains four independent sub-projects under `projects/`, each with its own virtual environment and data pipeline. All interactive work happens in Jupyter notebooks with supporting library code in `src/` directories.
+
+## Workspace Structure
+
+```
+C:\Quant\
+├── .gitignore              # Monorepo gitignore (data, outputs, venvs, binaries excluded)
+├── WORKSPACE_INDEX.md       # Project index, entry points, execution order
+├── projects/                # All projects live here (real paths)
+│   ├── MT5_Data_Extraction/ # Primary pipeline: data engine + ER filter + strategy lab
+│   ├── TWF/                 # Statistical microstructure analysis
+│   ├── BTC_ANALIST/         # Bitcoin cycle analysis
+│   └── GESTOR DE IA/        # AI portfolio management
+├── shared/
+│   ├── audit/               # 00_AUDIT_REPORT.md + _audit_tools/ (3 scripts)
+│   └── workspace_docs/      # This file (CLAUDE.md)
+├── _archive/                # Backups, legacy artifacts, migration logs
+│   ├── backup_20260207_1435/ # Pre-migration snapshot
+│   └── legacy/              # Old 99_archive contents
+└── Junctions (backward compat):
+    MT5_Data_Extraction → projects/MT5_Data_Extraction
+    TWF                 → projects/TWF
+    BTC_ANALIST         → projects/BTC_ANALIST
+    GESTOR DE IA        → projects/GESTOR DE IA
+```
+
+### What's in Git (62 files, ~1.4 MiB)
+Notebooks, Python source, configs (YAML/JSON), path contracts, docs, requirements.txt.
+
+### What's NOT in Git (on disk only, ignored)
+All `data/`, `outputs/`, `artifacts/`, `bulk_data/`, `logs/`, `restore/`, `backups/`, `diagnostics_global/`, virtual environments, `.env`, binary docs (PDF/DOCX), `_archive/`, `_inbox/`.
 
 ## Projects
 
@@ -31,18 +61,42 @@ Each project has its own `.venv`. Activate before running:
 
 ```powershell
 # Example for TWF
+cd C:\Quant\projects\TWF
 .\.venv\Scripts\Activate.ps1
 pip install -r requirements.txt
 ```
 
-Only TWF has a populated `requirements.txt`. Core dependencies: numpy, scipy, polars, pyarrow, statsmodels, ruptures, httpx, matplotlib, joblib, tqdm.
+All four projects have `requirements.txt`. Core stacks:
+- **MT5_Data_Extraction**: polars, pyarrow, numpy, scipy, statsmodels, matplotlib
+- **TWF**: numpy, scipy, polars, pyarrow, statsmodels, ruptures, httpx, matplotlib, joblib, tqdm
+- **BTC_ANALIST**: pandas, pyarrow, numpy, scikit-learn, scipy, statsmodels, matplotlib, seaborn, yfinance
+- **GESTOR DE IA**: openai, python-dotenv, simfin, yfinance, pandas, polars, pyarrow, numpy, scikit-learn
+
+## Execution Order (Core Pipeline)
+
+```
+1) 01_MT5_DE_5M_V1.ipynb       ← run from projects/MT5_Data_Extraction/
+2) 02_ER_FILTER_5M_V4.ipynb    ← run from projects/MT5_Data_Extraction/
+3) Strategy Lab notebooks       ← run from projects/MT5_Data_Extraction/ER_STRATEGY_LAB/notebooks/
+     03_TREND_M5_Strategy_v1/v2
+     04_RANGE_M5_Strategy_v1
+```
+
+Rule: **always `cd` to the project root before running notebooks**.
 
 ## Key Architectural Patterns
 
 ### Path Resolution
-- **MT5_Data_Extraction Notebook 1:** `DATA_ROOT = <PROJECT_ROOT>/data`. Override via `MT5_DE_DATA_ROOT` env var.
-- **MT5_Data_Extraction Notebook 2:** Auto-detects `PROJECT_ROOT` by walking up from `cwd()` looking for marker directories (`bulk_data/`, `processed_data/`, `outputs/`). Reads `data/metadata/config_snapshot.json` for path overrides if it exists.
+- **MT5 Notebook 1:** `DATA_ROOT = <PROJECT_ROOT>/data`. Override via `MT5_DE_DATA_ROOT` env var.
+- **MT5 Notebook 2:** Auto-detects `PROJECT_ROOT` by walking up from `cwd()` looking for marker directories (`bulk_data/`, `processed_data/`, `outputs/`). Reads `data/metadata/config_snapshot.json` for path overrides if it exists.
 - **TWF:** Paths managed via `src/twf/utils/config.py`.
+
+### Junctions (Backward Compatibility)
+Root-level Windows junctions (`mklink /J`) point from `C:\Quant\<project>` to `C:\Quant\projects\<project>`. This ensures hardcoded paths in notebooks (e.g., `Path(r"C:\Quant\MT5_Data_Extraction\data")`) continue working. **Do not remove junctions** without first updating all hardcoded references.
+
+Known hardcoded paths:
+- `01_MT5_DE_5M_V1.ipynb`: 7 instances of `C:\Quant\MT5_Data_Extraction\data` (fallback in `globals().get()`)
+- `GESTOR.ipynb`: 16 instances of `C:\Quant\GESTOR DE IA` (PROJECT_ROOT assignments)
 
 ### Data Flow (MT5_Data_Extraction)
 ```
@@ -85,12 +139,13 @@ TWF uses `runtime_defaults.json` (`n_jobs: 8`) for joblib parallelization.
 - Correlation matrices as CSV (`processed_data/corr_matrix_5m.csv`); built atomically via temp file rename
 
 ## Audit Tools
-`_audit_tools/` contains `quant_audit_local.py` (inventory) and `quant_audit_openai.py` (AI analysis). Outputs go to `_audit_out/`.
+`shared/audit/_audit_tools/` contains `quant_audit_local.py` (inventory), `quant_audit_openai.py` (AI analysis), and `quant_audit_full.ps1` (PowerShell). Outputs go to `_audit_out/`.
 
 ## Important Conventions
 - All data is real market data (never simulated)
 - Binance endpoint is public REST (no API key needed); OpenAI and SIMFIN keys go in `.env`
 - Notebooks use explicit cell-level print/log statements for traceability
 - TWF logging goes through `src/twf/utils/logging.py` (CSV-based event logger)
-- `respaldo/` directories contain backups — treat as read-only archives
 - The workspace is written in Spanish (variable names, comments, documentation)
+- **Git rule**: only code, configs, and docs are tracked. Data is always regenerable from the pipeline.
+- **Backups**: bundle backups in `C:\Backups\` (recoverable via `git clone <bundle>`)
