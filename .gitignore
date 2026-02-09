@@ -15,13 +15,20 @@ build/
 # === Virtual environments ===
 .venv/
 venv/
-venv1/
+venv*/
 env/
 **/btc_env/
 **/Lib/site-packages/
 
 # === Jupyter ===
 .ipynb_checkpoints/
+
+# === Tool caches ===
+.pytest_cache/
+.ruff_cache/
+.mypy_cache/
+htmlcov/
+.coverage
 
 # === Data (generated / downloaded — never version) ===
 *.parquet
@@ -43,6 +50,16 @@ data/
 *.7z
 *.rar
 *.gz
+*.whl
+
+# === ML models / numpy dumps ===
+*.onnx
+*.pt
+*.pth
+*.safetensors
+*.joblib
+*.npy
+*.npz
 
 # === Outputs / artifacts / logs (reproducible) ===
 outputs/
@@ -59,6 +76,8 @@ backups/
 **/backups/
 bulk_data/
 **/bulk_data/
+processed_data/
+**/processed_data/
 reports/
 **/reports/
 
