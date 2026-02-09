@@ -1,9 +1,10 @@
 # Workspace Ready Report
 
-**Fecha**: 2026-02-07
+**Fecha**: 2026-02-07 (actualizado post-push)
 **Repo**: `C:\Quant`
-**Branch**: `master`
-**HEAD**: `1d9fc8d`
+**Branch**: `main`
+**HEAD**: `12d3b99`
+**Remote**: `origin` → `https://github.com/test201807/hectorldu-quant-workspace.git` (private)
 **Auditor**: Claude Opus 4.6
 
 ---
@@ -13,20 +14,21 @@
 | # | Check | Comando | Resultado | Estado |
 |---|-------|---------|-----------|--------|
 | 1 | Git root | `git rev-parse --show-toplevel` | `C:/Quant` | **PASS** |
-| 2 | Working tree clean | `git status -sb` | `## master` (nothing to commit) | **PASS** |
-| 3 | Commits | `git log -5 --oneline --decorate` | 3 commits, HEAD on master | **PASS** |
+| 2 | Working tree clean | `git status -sb` | `## main...origin/main` (nothing to commit) | **PASS** |
+| 3 | Commits | `git log -5 --oneline --decorate` | 4 commits, HEAD on main | **PASS** |
 | 4 | Integridad | `git fsck --full` | exit code 0, 0 errors, 0 warnings | **PASS** |
 | 5a | No btc_env en historial | `git log --all -- projects/BTC_ANALIST/btc_env` | (vacío) | **PASS** |
 | 5b | No venv1 en historial | `git log --all -- projects/MT5_Data_Extraction/venv1` | (vacío) | **PASS** |
 | 6 | No extensiones prohibidas en historial | `git rev-list --objects --all \| grep -E '\.(parquet\|csv\|zip\|7z\|jsonl\|pkl\|db\|sqlite)$'` | 0 matches | **PASS** |
-| 7a | Archivos trackeados | `git ls-files \| wc -l` | 62 | **PASS** |
+| 7a | Archivos trackeados | `git ls-files \| wc -l` | 63 | **PASS** |
 | 7b | Tamaño de .git | `du -sh .git` | 1.6 MiB | **PASS** |
 | 8 | .gitignore cubre rutas críticas | `git check-ignore -v` (12 pruebas) | 12/12 ignored | **PASS** |
 
 ## Detalle de commits
 
 ```
-1d9fc8d (HEAD -> master) docs: update CLAUDE.md with final workspace structure
+12d3b99 (HEAD -> main, origin/main) audit: workspace ready to code
+1d9fc8d docs: update CLAUDE.md with final workspace structure
 e02ca9e chore: gitignore add junctions, workshop_report, research_logs
 d681a95 init: clean workspace with code, configs, and docs only
 ```
@@ -76,16 +78,26 @@ PROHIBITED_EXT_COUNT=0
 
 | Métrica | Valor |
 |---------|-------|
-| Archivos trackeados | 62 |
+| Archivos trackeados | 63 |
 | Tamaño .git | 1.6 MiB |
-| Commits | 3 |
-| Branches | 1 (master) |
-| Remotes | 0 |
-| Objetos en historial | 75 |
+| Commits | 4 |
+| Branches | 1 (main) |
+| Remotes | 1 (origin → github.com/test201807/hectorldu-quant-workspace) |
+| Upstream | main → origin/main (up to date) |
+| Objetos en historial | 75+ |
 
 ## Acciones correctivas aplicadas
 
 Ninguna. Todos los checks pasaron sin intervención.
+
+## Remote + Push
+
+| Check | Resultado | Estado |
+|-------|-----------|--------|
+| Remote configurado | `origin` → `https://github.com/test201807/hectorldu-quant-workspace.git` | **PASS** |
+| Push a GitHub | `main -> main` (new branch) | **PASS** |
+| Upstream tracking | `main...origin/main` (up to date) | **PASS** |
+| Branch rename | `master` → `main` | **PASS** |
 
 ## Veredicto
 
