@@ -1,0 +1,25 @@
+# Ruff configuration — Quant Workspace
+# Permissive: catch real errors, don't fight existing style
+
+target-version = "py311"
+line-length = 120
+
+[lint]
+# Start conservative: syntax errors + critical issues only
+select = [
+    "E",    # pycodestyle errors
+    "F",    # pyflakes (unused imports, undefined names)
+    "I",    # isort (import ordering)
+    "UP",   # pyupgrade
+]
+ignore = [
+    "E501",   # line too long (enforced loosely via line-length)
+    "E741",   # ambiguous variable name (common in quant: l, O, I)
+    "F841",   # local variable assigned but never used (WIP code)
+]
+
+[lint.per-file-ignores]
+"__init__.py" = ["F401"]  # unused imports in __init__ are fine
+
+[lint.isort]
+known-first-party = ["twf"]
