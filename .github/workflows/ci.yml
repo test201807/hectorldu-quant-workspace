@@ -1,0 +1,48 @@
+name: CI
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+    branches: [main]
+
+jobs:
+  lint:
+    name: Ruff Lint
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: astral-sh/ruff-action@v3
+        with:
+          args: check
+
+  smoke-test:
+    name: Import Smoke Tests
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.11"
+
+      - name: Compile all .py files (syntax check)
+        run: python -m py_compile $(find . -name '*.py' -not -path './.git/*')
+
+      - name: Import TWF modules
+        run: |
+          cd projects/TWF
+          python -c "
+          from src.twf.utils import config
+          from src.twf.utils import logging
+          from src.twf.stats import placeholders
+          print('TWF imports OK')
+          "
+
+      - name: Import BTC_ANALIST modules
+        run: |
+          cd projects/BTC_ANALIST
+          python -c "
+          from src.config import settings
+          from src.utils import dates
+          print('BTC_ANALIST imports OK')
+          "
