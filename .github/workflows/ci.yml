@@ -12,9 +12,15 @@ jobs:
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
-      - uses: astral-sh/ruff-action@v3
+      - uses: actions/setup-python@v5
         with:
-          args: check
+          python-version: "3.11"
+
+      - name: Install ruff
+        run: pip install ruff
+
+      - name: Ruff check
+        run: ruff check projects/**/src/ shared/
 
   smoke-test:
     name: Import Smoke Tests
@@ -25,24 +31,8 @@ jobs:
         with:
           python-version: "3.11"
 
-      - name: Compile all .py files (syntax check)
-        run: python -m py_compile $(find . -name '*.py' -not -path './.git/*')
+      - name: Install test dependencies
+        run: pip install pytest httpx
 
-      - name: Import TWF modules
-        run: |
-          cd projects/TWF
-          python -c "
-          from src.twf.utils import config
-          from src.twf.utils import logging
-          from src.twf.stats import placeholders
-          print('TWF imports OK')
-          "
-
-      - name: Import BTC_ANALIST modules
-        run: |
-          cd projects/BTC_ANALIST
-          python -c "
-          from src.config import settings
-          from src.utils import dates
-          print('BTC_ANALIST imports OK')
-          "
+      - name: Run import smoke tests
+        run: pytest tests/test_imports.py -v

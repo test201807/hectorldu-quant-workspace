@@ -1,4 +1,9 @@
-﻿import os, re, json, csv, argparse, datetime, traceback
+﻿import argparse
+import csv
+import datetime
+import json
+import os
+import re
 
 EXCLUDE_DIRS = {
   ".git",".venv","venv","__pycache__","node_modules",
@@ -66,7 +71,7 @@ def md_headings(text: str, max_heads=80):
 def ipynb_extract(path: str, max_cells=120, max_chars=20000):
     # Parse completo (limite por tamaño en main). Si falla, fallback a texto crudo.
     try:
-        with open(path, "r", encoding="utf-8", errors="replace") as f:
+        with open(path, encoding="utf-8", errors="replace") as f:
             nb = json.load(f)
         cells = nb.get("cells", [])
         out = []
@@ -301,7 +306,7 @@ def main():
     # final prints
     def count_lines(p):
         try:
-            with open(p, "r", encoding="utf-8", errors="ignore") as f:
+            with open(p, encoding="utf-8", errors="ignore") as f:
                 return sum(1 for _ in f)
         except Exception:
             return 0

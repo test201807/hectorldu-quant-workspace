@@ -1,5 +1,7 @@
 ﻿from __future__ import annotations
-import csv, time
+
+import csv
+import time
 from datetime import datetime, timezone
 from pathlib import Path
 from typing import Optional

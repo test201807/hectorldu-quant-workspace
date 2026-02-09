@@ -1,4 +1,10 @@
-﻿import os, json, argparse, time, urllib.request, urllib.error
+﻿import argparse
+import json
+import os
+import time
+import urllib.error
+import urllib.request
+
 
 def sanitize(s: str) -> str:
     if s is None: return ""
@@ -58,7 +64,7 @@ def main():
 
     # read digests -> compact lines
     compact_lines = []
-    with open(digests_path, "r", encoding="utf-8", errors="ignore") as f:
+    with open(digests_path, encoding="utf-8", errors="ignore") as f:
         for i, ln in enumerate(f):
             if i >= args.max_files:
                 break
