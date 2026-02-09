@@ -6,6 +6,9 @@ This file provides guidance to Claude Code (claude.ai/code) when working with co
 
 Quant is a multi-project quantitative analysis workspace (Python, notebooks). It contains four independent sub-projects under `projects/`, each with its own virtual environment and data pipeline. All interactive work happens in Jupyter notebooks with supporting library code in `src/` directories.
 
+**Remote**: `origin` → `https://github.com/test201807/hectorldu-quant-workspace.git` (private)
+**Branch**: `main`
+
 ## Workspace Structure
 
 ```
@@ -148,4 +151,5 @@ TWF uses `runtime_defaults.json` (`n_jobs: 8`) for joblib parallelization.
 - TWF logging goes through `src/twf/utils/logging.py` (CSV-based event logger)
 - The workspace is written in Spanish (variable names, comments, documentation)
 - **Git rule**: only code, configs, and docs are tracked. Data is always regenerable from the pipeline.
+- **Git workflow**: `git add <files> && git commit -m "msg" && git push` — upstream is `origin/main`.
 - **Backups**: bundle backups in `C:\Backups\` (recoverable via `git clone <bundle>`)
