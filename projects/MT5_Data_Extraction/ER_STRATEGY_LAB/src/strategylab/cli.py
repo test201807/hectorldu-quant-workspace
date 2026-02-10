@@ -34,10 +34,25 @@ def _ensure_output_dir(out: str | None) -> Path:
 # Commands
 # ---------------------------------------------------------------------------
 
+def _write_run_manifest(cfg: StrategyLabConfig, out_dir: Path, command: str) -> Path:
+    """Write a run manifest with full config snapshot and metadata."""
+    import hashlib
+    from datetime import datetime, timezone
+
+    manifest = {
+        "command": command,
+        "start_utc": datetime.now(timezone.utc).isoformat(),
+        "config_hash": hashlib.sha256(cfg.snapshot_json().encode()).hexdigest()[:12],
+        "config": cfg.to_dict(),
+    }
+    return snapshot_json(manifest, out_dir, "run_manifest")
+
+
 def cmd_run(args: argparse.Namespace) -> None:
     """Run a single backtest (trend strategy on synthetic data if no file)."""
     cfg = _load_config(args.config)
     out_dir = _ensure_output_dir(args.output)
+    _write_run_manifest(cfg, out_dir, "run")
 
     if args.data:
         df = pl.read_parquet(args.data)
@@ -112,6 +127,7 @@ def cmd_wfo(args: argparse.Namespace) -> None:
     """Run walk-forward optimization."""
     cfg = _load_config(args.config)
     out_dir = _ensure_output_dir(args.output)
+    _write_run_manifest(cfg, out_dir, "wfo")
 
     if args.data:
         df = pl.read_parquet(args.data)
@@ -140,12 +156,8 @@ def cmd_wfo(args: argparse.Namespace) -> None:
     sig_long = confirm_signals(gate_long, min_bars=cfg.engine.entry_confirm_bars)
     sig_short = confirm_signals(gate_short, min_bars=cfg.engine.entry_confirm_bars)
 
-    param_grid = {
-        "sl_atr": [1.5, 2.0, 2.5],
-        "tp_atr": [3.0, 5.0],
-        "trail_atr": [3.0, 4.0],
-        "time_stop_bars": [144, 288],
-    }
+    # Use param_grid from config (not hardcoded)
+    param_grid = cfg.wfo.param_grid
 
     result = run_wfo(
         df=df,
@@ -158,6 +170,7 @@ def cmd_wfo(args: argparse.Namespace) -> None:
         is_months=cfg.wfo.is_months,
         oos_months=cfg.wfo.oos_months,
         step_months=cfg.wfo.step_months,
+        embargo_days=cfg.wfo.embargo_days,
         max_combos=cfg.wfo.max_combos_per_symbol,
     )
 
@@ -184,7 +197,9 @@ def cmd_wfo(args: argparse.Namespace) -> None:
 
 def cmd_mc(args: argparse.Namespace) -> None:
     """Run Monte Carlo simulation on trade returns."""
+    cfg = _load_config(getattr(args, "config", None))
     out_dir = _ensure_output_dir(args.output)
+    _write_run_manifest(cfg, out_dir, "mc")
 
     if args.trades:
         trades_df = pl.read_parquet(args.trades)

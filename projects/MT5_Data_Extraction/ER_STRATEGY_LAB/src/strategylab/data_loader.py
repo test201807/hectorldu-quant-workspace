@@ -8,14 +8,21 @@ import polars as pl
 
 
 def load_bars(path: str | Path, symbols: list[str] | None = None) -> pl.DataFrame:
-    """Load OHLCV bars from parquet. Optionally filter symbols."""
+    """Load OHLCV bars from parquet. Optionally filter symbols.
+
+    Applies: UTC cast, symbol filter, sort, dedup (keep last).
+    """
     df = pl.read_parquet(str(path))
     if "time_utc" in df.columns:
         df = df.with_columns(pl.col("time_utc").cast(pl.Datetime("us", "UTC"), strict=False))
     if symbols:
         symbols_upper = [s.upper() for s in symbols]
         df = df.filter(pl.col("symbol").is_in(symbols_upper))
-    return df.sort(["symbol", "time_utc"])
+    df = df.sort(["symbol", "time_utc"])
+    # Dedup: keep last occurrence per (symbol, time_utc)
+    if "symbol" in df.columns:
+        df = df.unique(subset=["symbol", "time_utc"], keep="last", maintain_order=True)
+    return df
 
 
 def load_features(path: str | Path, symbols: list[str] | None = None) -> pl.DataFrame:

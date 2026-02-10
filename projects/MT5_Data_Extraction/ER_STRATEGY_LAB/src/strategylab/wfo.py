@@ -33,11 +33,14 @@ def build_wfo_folds(
     is_months: int = 18,
     oos_months: int = 3,
     step_months: int = 3,
+    embargo_days: int = 0,
 ) -> list[WFOFold]:
     """Build expanding or rolling WFO folds.
 
     Returns folds where IS period is `is_months` long and OOS is
     `oos_months` long, stepping forward by `step_months`.
+    An optional embargo gap (in days) separates IS end from OOS start
+    to prevent information leakage.
     """
     folds: list[WFOFold] = []
     fold_num = 0
@@ -46,7 +49,7 @@ def build_wfo_folds(
     while True:
         is_start = cursor
         is_end = _add_months(is_start, is_months)
-        oos_start = is_end
+        oos_start = is_end + timedelta(days=embargo_days)
         oos_end = _add_months(oos_start, oos_months)
 
         if oos_end > end:
@@ -202,6 +205,8 @@ def run_wfo(
     is_months: int = 18,
     oos_months: int = 3,
     step_months: int = 3,
+    embargo_days: int = 0,
+    min_folds: int = 0,
     max_combos: int = 100,
     min_trades_is: int = 30,
 ) -> WFOResult:
@@ -209,12 +214,17 @@ def run_wfo(
 
     For each fold: grid search on IS, apply best params to OOS.
     Concatenate all OOS trades for final evaluation.
+    Embargo gap between IS and OOS prevents leakage.
     """
     t_col = df.get_column("time_utc").to_list()
     start = min(t_col)
     end = max(t_col)
 
-    folds = build_wfo_folds(start, end, is_months, oos_months, step_months)
+    folds = build_wfo_folds(start, end, is_months, oos_months, step_months,
+                            embargo_days=embargo_days)
+
+    if min_folds > 0 and len(folds) < min_folds:
+        return WFOResult(folds=[], best_per_fold={}, oos_trades=pl.DataFrame(), oos_kpis={})
 
     best_per_fold: dict[str, GridResult] = {}
     all_oos_trades: list[pl.DataFrame] = []

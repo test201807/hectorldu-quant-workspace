@@ -213,6 +213,28 @@ def _stress_sim(stressed: list[float], n_sims: int, seed: int) -> MCResult:
 # Convenience
 # ---------------------------------------------------------------------------
 
+def var_cvar(sorted_values: list[float], alpha: float = 0.05) -> tuple[float, float]:
+    """Compute Value-at-Risk and Conditional VaR (Expected Shortfall).
+
+    Args:
+        sorted_values: Sorted list of final equities or returns.
+        alpha: Confidence level (e.g. 0.05 for 5th percentile).
+
+    Returns:
+        (VaR, CVaR) where VaR is the alpha-percentile value and
+        CVaR is the mean of all values below VaR.
+    """
+    if not sorted_values:
+        return 0.0, 0.0
+    s = sorted(sorted_values)
+    n = len(s)
+    var_idx = max(0, min(int(n * alpha), n - 1))
+    var_val = s[var_idx]
+    tail = s[:var_idx + 1]
+    cvar_val = sum(tail) / len(tail) if tail else var_val
+    return var_val, cvar_val
+
+
 def run_all_mc(
     trade_returns: list[float],
     n_sims: int = 1000,

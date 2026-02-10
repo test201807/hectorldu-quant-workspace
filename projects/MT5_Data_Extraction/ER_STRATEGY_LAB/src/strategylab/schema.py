@@ -2,6 +2,24 @@
 
 from __future__ import annotations
 
+from typing import Any
+
+import polars as pl
+
+
+def validate_columns(df: pl.DataFrame, schema: dict[str, Any], label: str = "DataFrame") -> list[str]:
+    """Validate that a DataFrame has all required columns from a schema.
+
+    Returns list of missing columns. Raises ValueError if any are missing.
+    """
+    required = schema.get("required", [])
+    present = set(df.columns)
+    missing = [c for c in required if c not in present]
+    if missing:
+        raise ValueError(f"{label} missing required columns: {missing}. Has: {sorted(present)}")
+    return missing
+
+
 BARS_SCHEMA = {
     "required": ["symbol", "time_utc", "open", "high", "low", "close"],
     "optional": ["volume", "spread"],
