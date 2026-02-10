@@ -1,0 +1,59 @@
+# StrategyLab — Default Configuration
+# Usage: python -m strategylab.cli run --config configs/strategylab.yaml
+
+strategy: trend_v2
+symbols:
+  - EURUSD
+  - GBPUSD
+  - XAUUSD
+  - LVMHP
+bar_seconds: 300
+
+costs:
+  spread_bps: 3.0
+  commission_bps: 0.0
+  slippage_bps: 1.0
+  borrow_bps_annual: 0.0
+
+risk:
+  risk_per_trade: 0.01
+  max_pos_size: 3.0
+  min_pos_size: 0.25
+  daily_loss_cap: -0.02
+  daily_profit_cap: 0.03
+  max_drawdown_cap: -0.15
+  max_trades_per_day: 3
+  max_positions: 1
+
+engine:
+  sl_atr: 2.0
+  tp_atr: 5.0
+  trail_atr: 3.0
+  time_stop_bars: 288
+  entry_confirm_bars: 12
+  exit_gate_off_bars: 12
+  min_hold_bars: 6
+  cooldown_bars: 24
+  mon_fri_only: true
+
+wfo:
+  is_months: 18
+  oos_months: 3
+  step_months: 3
+  embargo_days: 5
+  min_folds: 6
+  max_combos_per_symbol: 100
+  param_grid:
+    sl_atr: [1.5, 2.0, 2.5]
+    tp_atr: [3.0, 5.0, 7.0]
+    trail_atr: [3.0, 4.0, 5.0]
+  score_metric: calmar
+  seed: 42
+
+mc:
+  n_sims: 1000
+  block_size: 20
+  stress_cost_factor: 2.0
+  stress_slippage_factor: 3.0
+  seed: 42
+  confidence_levels: [0.05, 0.25, 0.50, 0.75, 0.95]
