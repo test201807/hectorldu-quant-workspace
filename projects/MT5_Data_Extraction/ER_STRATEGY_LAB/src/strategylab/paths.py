@@ -1,46 +1,41 @@
-"""Path resolution: PROJECT_ROOT, data roots, output roots."""
+"""Path resolution — delegates to PROJECT_ROOT/path_contract.py."""
 
 from __future__ import annotations
 
-import os
+import sys
 from pathlib import Path
 
 
-def _env(name: str, default: str | None = None) -> str | None:
-    v = os.getenv(name)
-    return v if v not in (None, "") else default
+def _ensure_path_contract() -> None:
+    """Add path_contract.py's parent to sys.path if not already importable."""
+    try:
+        import path_contract  # noqa: F401
+        return
+    except ImportError:
+        pass
+    here = Path(__file__).resolve()
+    for p in here.parents:
+        if (p / "path_contract.py").exists():
+            if str(p) not in sys.path:
+                sys.path.insert(0, str(p))
+            return
 
 
-def detect_project_root() -> Path:
-    """Walk up from CWD looking for the MT5_Data_Extraction directory."""
-    forced = _env("MT5_PROJECT_ROOT") or _env("MT5_DE_PROJECT_ROOT")
-    if forced:
-        return Path(forced).resolve()
-    start = Path.cwd().resolve()
-    for p in [start, *list(start.parents)]:
-        if p.name.lower() == "mt5_data_extraction":
-            return p
-    return start
+_ensure_path_contract()
+import path_contract  # type: ignore[import-untyped]  # noqa: E402
 
-
-def strategy_lab_root() -> Path:
-    """Return the ER_STRATEGY_LAB directory."""
-    forced = _env("STRATEGY_LAB_ROOT")
-    if forced:
-        return Path(forced).resolve()
-    return detect_project_root() / "ER_STRATEGY_LAB"
+# Re-export for backward compatibility
+detect_project_root = path_contract.detect_project_root
+strategy_lab_root = path_contract.strategy_lab_root
 
 
 def outputs_root(strategy: str = "default", version: str = "v1") -> Path:
     """Return the outputs directory for a strategy, creating if needed."""
-    root = Path(
-        _env("STRATEGYLAB_OUTPUTS_ROOT", str(strategy_lab_root() / "outputs" / "strategylab"))
-    ).resolve()
-    out = root / strategy / version
+    out = path_contract.outputs_root() / strategy / version
     out.mkdir(parents=True, exist_ok=True)
     return out
 
 
 def data_root() -> Path:
-    """Return the processed_data root (never in git)."""
-    return detect_project_root() / "processed_data"
+    """Return DATA_ROOT = PROJECT_ROOT/data."""
+    return path_contract.data_root()
