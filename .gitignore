@@ -1,5 +1,4 @@
-# ============================================================
-# .gitignore — Quant Workspace (monorepo)
+# .gitignore — MT5_Data_Extraction Pipeline
 # ============================================================
 
 # === Python runtime ===
@@ -8,7 +7,6 @@ __pycache__/
 *.pyo
 *.pyd
 *.egg-info/
-*.eggs/
 dist/
 build/
 
@@ -16,9 +14,6 @@ build/
 .venv/
 venv/
 venv*/
-env/
-**/btc_env/
-**/Lib/site-packages/
 
 # === Jupyter ===
 .ipynb_checkpoints/
@@ -69,7 +64,6 @@ artifacts/
 logs/
 **/logs/
 diagnostics_global/
-**/diagnostics_global/
 restore/
 **/restore/
 backups/
@@ -78,10 +72,9 @@ bulk_data/
 **/bulk_data/
 processed_data/
 **/processed_data/
-reports/
-**/reports/
+research_logs/
 
-# === Binary documents (keep outside Git) ===
+# === Binary documents ===
 *.pdf
 *.docx
 *.xlsx
@@ -109,18 +102,6 @@ tmp/
 pipeline.log
 nul
 
-# === Junctions (root-level symlinks for backward compatibility) ===
-/BTC_ANALIST
-/GESTOR DE IA
-/MT5_Data_Extraction
-/TWF
-
-# === Non-code dirs (workshop reports, research logs) ===
-workshop_report/
-research_logs/
-
-# === Claude / audit metadata ===
+# === Claude metadata ===
 .claude/
-_audit_out/
 _archive/
-_inbox/
