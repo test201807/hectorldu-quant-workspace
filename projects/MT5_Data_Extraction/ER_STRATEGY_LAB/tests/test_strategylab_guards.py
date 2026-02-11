@@ -261,3 +261,64 @@ class TestEmbargoWFO:
         for f in folds:
             gap = (f.oos_start - f.is_end).days
             assert gap == 0
+
+
+# ---------------------------------------------------------------------------
+# Column rename (timestamp_utc → time_utc)
+# ---------------------------------------------------------------------------
+
+class TestColumnRename:
+
+    def test_timestamp_utc_renamed(self):
+        """load_bars should rename timestamp_utc → time_utc transparently."""
+        import tempfile
+        from datetime import datetime, timezone
+
+        from strategylab.data_loader import load_bars
+
+        df = pl.DataFrame({
+            "symbol": ["TEST"] * 5,
+            "timestamp_utc": [
+                datetime(2024, 1, i, tzinfo=timezone.utc) for i in range(1, 6)
+            ],
+            "open": [1.0] * 5,
+            "high": [1.1] * 5,
+            "low": [0.9] * 5,
+            "close": [1.05] * 5,
+            "tick_volume": [100] * 5,
+            "spread_points": [2] * 5,
+        })
+        with tempfile.NamedTemporaryFile(suffix=".parquet", delete=False) as f:
+            df.write_parquet(f.name)
+            loaded = load_bars(f.name)
+
+        assert "time_utc" in loaded.columns
+        assert "timestamp_utc" not in loaded.columns
+        assert "volume" in loaded.columns
+        assert "tick_volume" not in loaded.columns
+        assert "spread" in loaded.columns
+        assert "spread_points" not in loaded.columns
+        assert loaded.schema["time_utc"] == pl.Datetime("us", "UTC")
+
+    def test_epoch_seconds_coerced(self):
+        """Integer epoch timestamps should be auto-detected and coerced."""
+        import tempfile
+
+        from strategylab.data_loader import load_bars
+
+        df = pl.DataFrame({
+            "symbol": ["TEST"] * 3,
+            "timestamp_utc": [1704067200, 1704153600, 1704240000],  # epoch seconds
+            "open": [1.0] * 3,
+            "high": [1.1] * 3,
+            "low": [0.9] * 3,
+            "close": [1.05] * 3,
+            "tick_volume": [100] * 3,
+            "spread_points": [2] * 3,
+        })
+        with tempfile.NamedTemporaryFile(suffix=".parquet", delete=False) as f:
+            df.write_parquet(f.name)
+            loaded = load_bars(f.name)
+
+        assert loaded.schema["time_utc"] == pl.Datetime("us", "UTC")
+        assert loaded["time_utc"].dt.year().to_list() == [2024, 2024, 2024]
