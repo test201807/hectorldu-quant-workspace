@@ -1,15 +1,22 @@
 """Unified Path Contract for MT5_Data_Extraction.
 
-Single source of truth used by NB3 (TREND), NB4 (RANGE), and strategylab.paths.
-Compatible with the CLOSED contracts of NB1 (MT5_DE_DATA_ROOT) and NB2 (marker-based auto-detect).
+Single source of truth for ALL notebooks (NB1, NB2, NB3, NB4) and the
+strategylab module.  Lives at ``shared/contracts/path_contract.py``.
 
-All functions accept an optional ``project_root`` parameter so callers that have
-already resolved it can skip re-detection.
+All functions accept an optional ``project_root`` parameter so callers that
+have already resolved it can skip re-detection.
 """
 from __future__ import annotations
 
 import os
 from pathlib import Path
+
+# ---------------------------------------------------------------------------
+# Internal: __file__-based root hint
+# ---------------------------------------------------------------------------
+_THIS_FILE = Path(__file__).resolve()
+_THIS_DIR = _THIS_FILE.parent                     # shared/contracts/
+_FILE_BASED_ROOT = _THIS_DIR.parent.parent         # PROJECT_ROOT candidate
 
 # ---------------------------------------------------------------------------
 # Helpers
@@ -21,6 +28,11 @@ def _env(name: str) -> str | None:
     return v if v not in (None, "") else None
 
 
+def contract_file() -> Path:
+    """Return the absolute path of this contract module."""
+    return _THIS_FILE
+
+
 # ---------------------------------------------------------------------------
 # PROJECT_ROOT detection
 # ---------------------------------------------------------------------------
@@ -30,22 +42,27 @@ def detect_project_root() -> Path:
 
     Priority:
       1. Env vars: MT5_PROJECT_ROOT or MT5_DE_PROJECT_ROOT
-      2. Walk up from CWD matching directory name ``mt5_data_extraction`` (case-insensitive)
-      3. Walk up from CWD looking for NB2 marker dirs (data/, outputs/)
-      4. Fallback: CWD
+      2. __file__ hint (shared/contracts/ → parent.parent)
+      3. Walk up from CWD matching directory name ``mt5_data_extraction``
+      4. Walk up from CWD looking for marker dirs (data/, outputs/)
+      5. Fallback: CWD
     """
     forced = _env("MT5_PROJECT_ROOT") or _env("MT5_DE_PROJECT_ROOT")
     if forced:
         return Path(forced).resolve()
 
+    # Strategy 1 (new): __file__ location → shared/contracts/ → PROJECT_ROOT
+    if _FILE_BASED_ROOT.name.lower() == "mt5_data_extraction":
+        return _FILE_BASED_ROOT
+
     start = Path.cwd().resolve()
 
-    # Strategy 1: directory name match (NB3/NB4 convention)
+    # Strategy 2: directory name match
     for p in [start, *list(start.parents)]:
         if p.name.lower() == "mt5_data_extraction":
             return p
 
-    # Strategy 2: marker directories (NB2 convention)
+    # Strategy 3: marker directories (data/ + outputs/)
     markers = {"data", "outputs"}
     for p in [start, *list(start.parents)]:
         try:
@@ -63,7 +80,7 @@ def detect_project_root() -> Path:
 # ---------------------------------------------------------------------------
 
 def data_root(project_root: Path | None = None) -> Path:
-    """DATA_ROOT = PROJECT_ROOT/data  (matches NB1 contract)."""
+    """DATA_ROOT = PROJECT_ROOT/data  (shared across all notebooks)."""
     return (project_root or detect_project_root()) / "data"
 
 
@@ -111,7 +128,28 @@ def range_outputs_dir(project_root: Path | None = None) -> Path:
 
 
 def strategy_lab_root(project_root: Path | None = None) -> Path:
-    return (project_root or detect_project_root()) / "ER_STRATEGY_LAB"
+    """03_STRATEGY_LAB directory."""
+    return (project_root or detect_project_root()) / "03_STRATEGY_LAB"
+
+
+# ---------------------------------------------------------------------------
+# Notebook directory helpers (new structure)
+# ---------------------------------------------------------------------------
+
+def nb1_notebook_dir(project_root: Path | None = None) -> Path:
+    return (project_root or detect_project_root()) / "01_DATA_EXTRACTION" / "notebooks"
+
+
+def nb2_notebook_dir(project_root: Path | None = None) -> Path:
+    return (project_root or detect_project_root()) / "02_ER_FILTER" / "notebooks"
+
+
+def nb3_notebook_dir(project_root: Path | None = None) -> Path:
+    return (project_root or detect_project_root()) / "03_STRATEGY_LAB" / "notebooks"
+
+
+def shared_dir(project_root: Path | None = None) -> Path:
+    return (project_root or detect_project_root()) / "shared"
 
 
 # ---------------------------------------------------------------------------

@@ -102,6 +102,10 @@ tmp/
 pipeline.log
 nul
 
+# === Project structure ===
+_trash_review/
+reports/
+
 # === Claude metadata ===
 .claude/
 _archive/

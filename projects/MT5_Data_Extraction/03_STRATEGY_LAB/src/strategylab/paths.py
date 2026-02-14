@@ -1,4 +1,4 @@
-"""Path resolution — delegates to PROJECT_ROOT/path_contract.py."""
+"""Path resolution — delegates to shared/contracts/path_contract.py."""
 
 from __future__ import annotations
 
@@ -15,9 +15,10 @@ def _ensure_path_contract() -> None:
         pass
     here = Path(__file__).resolve()
     for p in here.parents:
-        if (p / "path_contract.py").exists():
-            if str(p) not in sys.path:
-                sys.path.insert(0, str(p))
+        candidate = p / "shared" / "contracts"
+        if (candidate / "path_contract.py").exists():
+            if str(candidate) not in sys.path:
+                sys.path.insert(0, str(candidate))
             return
 
 
