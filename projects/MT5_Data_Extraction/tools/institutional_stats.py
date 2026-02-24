@@ -7,7 +7,7 @@ Genera un "institutional_pack" con métricas defendibles:
   - Monte Carlo (equity distribution + challenge sim)
   - Alpha decay (rolling windows + half-life)
   - WFO overfitting (per-fold + PBO proxy + DSR)
-  - Cost sensitivity (1x/1.25x/1.5x/2x)
+  - Cost sensitivity (1x/1.5x/2x/2.5x/3x/4x)
 
 Uso:
   cd C:\\Quant\\projects\\MT5_Data_Extraction
@@ -54,8 +54,8 @@ CAPITAL = 25_000
 RISK_PER_TRADE_USD = 75
 ANNUAL_FACTOR = 365          # crypto 24/7
 SQRT_ANNUAL = np.sqrt(ANNUAL_FACTOR)
-COST_BASE_DEC = 0.0003       # 3 bps roundtrip (verified from trades)
-COST_STRESS_DEC = 0.0006     # 6 bps roundtrip
+DEFAULT_COST_BASE_BPS = 8.0     # fee-only for crypto (override from cost_model_snapshot)
+DEFAULT_COST_STRESS_BPS = 16.0  # 2x base
 N_BOOTSTRAP = 10_000
 N_MC_SIMS = 10_000
 MC_SEED = 42
@@ -64,7 +64,7 @@ CHALLENGE_TOTAL_MAX_LOSS = 2_500
 CHALLENGE_PROFIT_TARGET = 1_250
 CHALLENGE_MIN_DAYS = 2
 
-COST_MULTIPLIERS = [1.0, 1.25, 1.5, 2.0]
+COST_MULTIPLIERS = [1.0, 1.5, 2.0, 2.5, 3.0, 4.0]
 
 # Thresholds  {metric: (pass_threshold, warn_threshold, direction)}
 # direction: "gt" = higher is better, "lt" = lower is better
@@ -159,6 +159,14 @@ def load_data(run_dir: Path) -> dict[str, Any]:
         p = run_dir / f"{name}.json"
         if p.exists():
             data[name.replace("_v2", "")] = json.loads(p.read_text(encoding="utf-8"))
+
+    # Cost model snapshot
+    cost_snap_path = run_dir / "cost_model_snapshot_v2.json"
+    if cost_snap_path.exists():
+        data["cost_model"] = json.loads(cost_snap_path.read_text(encoding="utf-8"))
+    else:
+        data["cost_model"] = None
+
     return data
 
 
@@ -169,13 +177,30 @@ def load_data(run_dir: Path) -> dict[str, Any]:
 def compute_pos_notional(trades: pl.DataFrame) -> tuple[float, float]:
     """Compute position notional from SL-exit trades (median SL loss)."""
     sl = trades.filter(pl.col("exit_reason") == "SL")
+    _pnl_col = "net_pnl_adj_base" if "net_pnl_adj_base" in trades.columns else "net_pnl_base"
     if sl.height > 0:
-        sl_ret_med = float(sl["net_pnl_base"].abs().median())
+        sl_ret_med = float(sl[_pnl_col].abs().median())
     else:
         sl_ret_med = 0.003
     sl_ret_med = max(sl_ret_med, 1e-8)
     pos_notional = RISK_PER_TRADE_USD / sl_ret_med
     return pos_notional, sl_ret_med
+
+
+def resolve_costs(cost_model: dict | None, symbol: str) -> tuple[float, float, str]:
+    """Read base/stress costs from cost_model_snapshot.
+    Returns: (cost_base_dec, cost_stress_dec, source_description)
+    """
+    if cost_model and "per_symbol" in cost_model:
+        for entry in cost_model["per_symbol"]:
+            if entry["symbol"] == symbol:
+                base_bps = entry.get("base_cost_bps", DEFAULT_COST_BASE_BPS)
+                stress_bps = entry.get("stress_cost_bps", DEFAULT_COST_STRESS_BPS)
+                return (base_bps / 10_000, stress_bps / 10_000,
+                        f"cost_model_snapshot: {base_bps}/{stress_bps} bps")
+    # Fallback
+    return (DEFAULT_COST_BASE_BPS / 10_000, DEFAULT_COST_STRESS_BPS / 10_000,
+            f"default: {DEFAULT_COST_BASE_BPS}/{DEFAULT_COST_STRESS_BPS} bps (snapshot not found)")
 
 
 def build_daily_returns(trades: pl.DataFrame, pos_notional: float,
@@ -197,6 +222,17 @@ def build_daily_returns(trades: pl.DataFrame, pos_notional: float,
         ])
         .sort("trade_date")
     )
+
+    # ── FIX 1: Fill calendar gaps with PnL=0 ──
+    date_min = df["trade_date"].min()
+    date_max = df["trade_date"].max()
+    all_dates = pl.date_range(date_min, date_max, "1d", eager=True).alias("trade_date")
+    calendar = pl.DataFrame({"trade_date": all_dates})
+    df = calendar.join(df, on="trade_date", how="left").with_columns(
+        pl.col("pnl_usd").fill_null(0.0),
+        pl.col("n_trades").fill_null(0),
+    ).sort("trade_date")
+    # ── END FIX 1 ──
 
     dates = df["trade_date"].to_list()
     pnl_usd = df["pnl_usd"].to_numpy()
@@ -801,31 +837,41 @@ def deflated_sharpe(daily_ret: np.ndarray, n_trials: int) -> dict[str, Any]:
         result["status"] = "ZERO_VARIANCE"
         return result
 
-    sr_obs = float(np.mean(daily_ret) / std_d * SQRT_ANNUAL)
+    # ── FIX 2: Work in non-annualized (daily) scale ──
+    sr_daily = float(np.mean(daily_ret) / std_d)          # NON-annualized
+    sr_annual = sr_daily * SQRT_ANNUAL                     # for reporting
 
-    # Expected SR under null (multiple testing)
+    # Expected max z-score under null (Bailey & López de Prado 2014)
     euler_gamma = 0.5772156649
     if n_trials > 1:
         log_n = np.log(n_trials)
-        sr_expected = np.sqrt(2 * log_n) * (1 - euler_gamma / (2 * log_n))
+        expected_z = np.sqrt(2 * log_n) * (1 - euler_gamma / (2 * log_n))
     else:
-        sr_expected = 0.0
+        expected_z = 0.0
 
-    # SE of Sharpe (Lo 2002)
+    # Scale to daily SR: under H0, SR_daily ~ N(0, 1/sqrt(T)), so max SR_daily = max_z / sqrt(T)
+    sr_expected_daily = expected_z / np.sqrt(T)
+    sr_expected_annual = sr_expected_daily * SQRT_ANNUAL    # for reporting
+
+    # SE of SR_daily (Lo 2002) — uses NON-annualized SR
     skew = float(ss.skew(daily_ret, bias=False)) if T >= 3 else 0.0
     kurt = float(ss.kurtosis(daily_ret, bias=False)) if T >= 4 else 0.0
-    se_sr = np.sqrt((1 + 0.5 * sr_obs ** 2 - skew * sr_obs + (kurt / 4) * sr_obs ** 2) / max(T, 1))
+    se_sr_daily = np.sqrt(
+        (1 + 0.5 * sr_daily**2 - skew * sr_daily + (kurt / 4) * sr_daily**2) / max(T, 1)
+    )
 
-    if se_sr > 0:
-        dsr_z = (sr_obs - sr_expected) / se_sr
+    # DSR z-score (scale-invariant)
+    if se_sr_daily > 0:
+        dsr_z = (sr_daily - sr_expected_daily) / se_sr_daily
         p_val = 1 - ss.norm.cdf(dsr_z)
     else:
         dsr_z = 0.0
         p_val = 1.0
+    # ── END FIX 2 ──
 
-    result["sr_observed"] = round(sr_obs, 4)
-    result["sr_expected_null"] = round(sr_expected, 4)
-    result["se_sr"] = round(se_sr, 4)
+    result["sr_observed"] = round(sr_annual, 4)            # annualized for reporting
+    result["sr_expected_null"] = round(sr_expected_annual, 4)
+    result["se_sr"] = round(se_sr_daily * SQRT_ANNUAL, 4)  # annualized for reporting
     result["dsr_z"] = round(dsr_z, 4)
     result["p_value"] = round(p_val, 6)
 
@@ -843,14 +889,15 @@ def deflated_sharpe(daily_ret: np.ndarray, n_trials: int) -> dict[str, Any]:
 # SECTION F: COST SENSITIVITY
 # ══════════════════════════════════════════════════════════════════════════════
 
-def cost_sensitivity(trades_oos: pl.DataFrame, pos_notional: float) -> list[dict]:
+def cost_sensitivity(trades_oos: pl.DataFrame, pos_notional: float,
+                     cost_base_dec: float) -> list[dict]:
     """Recompute metrics at different cost multipliers."""
     rows = []
     for mult in COST_MULTIPLIERS:
         # Adjusted PnL
         adj_pnl_col = f"_pnl_cost_{mult}"
         trades_adj = trades_oos.with_columns(
-            (pl.col("gross_pnl") - COST_BASE_DEC * mult).alias(adj_pnl_col)
+            (pl.col("gross_pnl") - cost_base_dec * mult).alias(adj_pnl_col)
         )
 
         pnl_arr = trades_adj[adj_pnl_col].to_numpy()
@@ -865,6 +912,17 @@ def cost_sensitivity(trades_oos: pl.DataFrame, pos_notional: float) -> list[dict
             .agg((pl.col(adj_pnl_col) * pos_notional).sum().alias("pnl_usd"))
             .sort("td")
         )
+
+        # ── Calendar fill (same as build_daily_returns) ──
+        if df_daily.height > 0:
+            td_min = df_daily["td"].min()
+            td_max = df_daily["td"].max()
+            all_td = pl.date_range(td_min, td_max, "1d", eager=True).alias("td")
+            cal = pl.DataFrame({"td": all_td})
+            df_daily = cal.join(df_daily, on="td", how="left").with_columns(
+                pl.col("pnl_usd").fill_null(0.0),
+            ).sort("td")
+
         daily_pnl_arr = df_daily["pnl_usd"].to_numpy()
 
         # Equity curve
@@ -931,7 +989,7 @@ def cost_sensitivity(trades_oos: pl.DataFrame, pos_notional: float) -> list[dict
 
         rows.append({
             "cost_multiplier": mult,
-            "cost_bps": round(COST_BASE_DEC * mult * 10000, 1),
+            "cost_bps": round(cost_base_dec * mult * 10000, 1),
             "sharpe_annual": round(sharpe, 4),
             "total_return_pct": round(total_ret, 4),
             "max_dd_pct": round(max_dd, 4),
@@ -949,8 +1007,8 @@ def cost_sensitivity(trades_oos: pl.DataFrame, pos_notional: float) -> list[dict
     # Breakeven multiplier
     gross_total = float(trades_oos["gross_pnl"].sum())
     n_trades = trades_oos.height
-    if n_trades > 0 and COST_BASE_DEC > 0:
-        m_breakeven = gross_total / (n_trades * COST_BASE_DEC)
+    if n_trades > 0 and cost_base_dec > 0:
+        m_breakeven = gross_total / (n_trades * cost_base_dec)
     else:
         m_breakeven = float("inf")
 
@@ -1043,8 +1101,11 @@ def export_pack(run_dir: Path, run_id: str, trades_oos: pl.DataFrame,
         "pos_notional": all_results["pos_notional"],
         "sl_return_median": all_results["sl_return_median"],
         "annualization_factor": ANNUAL_FACTOR,
-        "cost_base_bps": COST_BASE_DEC * 10000,
-        "cost_stress_bps": COST_STRESS_DEC * 10000,
+        "cost_base_bps": all_results["cost_base_dec"] * 10000,
+        "cost_stress_bps": all_results["cost_stress_dec"] * 10000,
+        "cost_source": all_results["cost_source"],
+        "daily_series_type": "calendar",
+        "daily_series_obs": len(all_results.get("_dates_base", [])),
         "n_bootstrap": N_BOOTSTRAP,
         "n_mc_sims": N_MC_SIMS,
         "oos_trades": trades_oos.height,
@@ -1090,21 +1151,21 @@ FILES:
   monte_carlo_distribution.csv — MC equity percentiles, P(negative), P(DD>X%)
   alpha_decay_report.csv      — Rolling window decay analysis + half-life
   pbo_report.csv              — WFO pass rate, PBO proxy, Deflated Sharpe Ratio
-  cost_sensitivity.csv        — Performance at 1x/1.25x/1.5x/2x costs + challenge sim
+  cost_sensitivity.csv        — Performance at 1x/1.5x/2x/2.5x/3x/4x costs + challenge sim
   institutional_manifest.json — Metadata, hashes, parameters
   README.txt                  — This file
 
 METRIC DEFINITIONS:
-  - Returns: fractional per-trade (net_pnl_base = gross_pnl - 3bps roundtrip)
-  - Daily returns: sum of trade PnL_USD / equity_t-1
-  - Sharpe: annualized from daily returns, sqrt(365) factor (crypto 24/7)
+  - Returns: fractional per-trade (net_pnl_adj = gross_pnl - cost from snapshot)
+  - Daily returns: calendar-day series (gaps filled with PnL=0)
+  - Sharpe: annualized from calendar-day returns, sqrt(365) factor (crypto 24/7)
   - Sortino: downside deviation using all observations, target=0
   - MaxDD: peak-to-trough on daily USD equity curve
   - VaR/CVaR: historical (non-parametric), 95% confidence
   - Bootstrap: Stationary (Politis & Romano 1994), automatic block length
   - Monte Carlo: {N_MC_SIMS:,} simulations via stationary bootstrap of daily PnL
   - PBO: Approximate (IS rank vs OOS sign per fold)
-  - DSR: Bailey & López de Prado (2014), accounts for N trials tested
+  - DSR: Bailey & López de Prado (2014), non-annualized SR in formula, accounts for N trials
 
 HOW TO USE:
   1. Open metrics_core.csv for executive summary (base vs stress)
@@ -1146,6 +1207,22 @@ def main():
 
     print(f"[institutional_stats] Trades: OOS={trades_oos.height}, IS={trades_is.height}")
 
+    # Costs
+    cost_base_dec, cost_stress_dec, cost_source = resolve_costs(
+        data.get("cost_model"), "BTCUSD")
+    print(f"[institutional_stats] Costs: base={cost_base_dec*10000:.1f}bps, "
+          f"stress={cost_stress_dec*10000:.1f}bps ({cost_source})")
+
+    # Recompute net PnL from gross_pnl with correct costs
+    trades_oos = trades_oos.with_columns([
+        (pl.col("gross_pnl") - cost_base_dec).alias("net_pnl_adj_base"),
+        (pl.col("gross_pnl") - cost_stress_dec).alias("net_pnl_adj_stress"),
+    ])
+    trades_is = trades_is.with_columns([
+        (pl.col("gross_pnl") - cost_base_dec).alias("net_pnl_adj_base"),
+        (pl.col("gross_pnl") - cost_stress_dec).alias("net_pnl_adj_stress"),
+    ])
+
     # Sizing
     pos_notional, sl_ret_med = compute_pos_notional(trades_oos)
     print(f"[institutional_stats] Sizing: pos_notional=${pos_notional:,.0f}, "
@@ -1154,12 +1231,15 @@ def main():
     all_results: dict[str, Any] = {
         "pos_notional": round(pos_notional, 2),
         "sl_return_median": round(sl_ret_med, 6),
+        "cost_base_dec": cost_base_dec,
+        "cost_stress_dec": cost_stress_dec,
+        "cost_source": cost_source,
     }
 
     # ── A: Core metrics (base + stress) ──
     print("[institutional_stats] Computing core metrics...")
     core = {}
-    for scenario, pnl_col in [("base", "net_pnl_base"), ("stress", "net_pnl_stress")]:
+    for scenario, pnl_col in [("base", "net_pnl_adj_base"), ("stress", "net_pnl_adj_stress")]:
         daily_ret, daily_pnl, dates = build_daily_returns(trades_oos, pos_notional, pnl_col)
         m = compute_core_metrics(trades_oos, daily_ret, daily_pnl, pos_notional, pnl_col)
         core[scenario] = m
@@ -1170,7 +1250,8 @@ def main():
 
     # Use base scenario for downstream analysis
     daily_ret_base, daily_pnl_base, dates_base = build_daily_returns(
-        trades_oos, pos_notional, "net_pnl_base")
+        trades_oos, pos_notional, "net_pnl_adj_base")
+    all_results["_dates_base"] = dates_base
 
     # ── B: Significance tests ──
     print("[institutional_stats] Running significance tests...")
@@ -1222,7 +1303,7 @@ def main():
 
     # ── F: Cost sensitivity ──
     print("[institutional_stats] Computing cost sensitivity...")
-    all_results["cost_sensitivity"] = cost_sensitivity(trades_oos, pos_notional)
+    all_results["cost_sensitivity"] = cost_sensitivity(trades_oos, pos_notional, cost_base_dec)
     for cs in all_results["cost_sensitivity"]:
         print(f"  Cost {cs['cost_multiplier']}x ({cs['cost_bps']}bps): "
               f"Sharpe={cs['sharpe_annual']:.3f}, Ret={cs['total_return_pct']:.1f}%, "
