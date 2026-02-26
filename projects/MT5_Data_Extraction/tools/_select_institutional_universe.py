@@ -30,6 +30,7 @@ from typing import Any, Dict, List, Optional, Tuple
 
 import numpy as np
 import polars as pl
+from scipy import stats as _scipy_stats
 
 # ---------------------------------------------------------------------------
 # Paths — path_contract + strategylab
@@ -95,6 +96,41 @@ MIN_SIGNALS_SCREEN = 2000
 STABLE_SCORE = 55
 MARGINAL_SCORE = 35
 STABLE_MIN_FOLD_PCT = 0.5
+
+
+# ---------------------------------------------------------------------------
+# FDR — Benjamini-Hochberg (1995)
+# ---------------------------------------------------------------------------
+
+def benjamini_hochberg(pvalues: List[float], alpha: float = 0.05) -> List[bool]:
+    """FDR correction de Benjamini-Hochberg para pruebas multiples.
+
+    Controla la tasa de falsos descubrimientos al evaluar N hipotesis
+    simultaneamente (ej: 92 candidatos = 46 simbolos × 2 sides).
+
+    Args:
+        pvalues: p-valores de cada hipotesis (H0: media OOS <= 0).
+        alpha:   nivel FDR deseado (default 0.05).
+
+    Returns:
+        Lista de bool: True = rechazar H0 al nivel FDR controlado.
+
+    Referencia: Benjamini & Hochberg (1995), J. Royal Stat. Soc. B, 57(1), 289-300.
+    """
+    n = len(pvalues)
+    if n == 0:
+        return []
+    # Ordenar indices por p-valor ascendente
+    sorted_idx = sorted(range(n), key=lambda i: pvalues[i])
+    reject = [False] * n
+    last_k = -1  # ultimo rango (1-indexed) que cumple el criterio BH
+    for k, orig_i in enumerate(sorted_idx, 1):
+        if pvalues[orig_i] <= (k / n) * alpha:
+            last_k = k
+    # Rechazar todos desde rango 1 hasta last_k
+    for k in range(last_k):
+        reject[sorted_idx[k]] = True
+    return reject
 
 
 # ---------------------------------------------------------------------------
@@ -426,6 +462,14 @@ def evaluate_candidate(
         total_ret,
     )
 
+    # t-test de una cola: H0 = media OOS <= 0  vs  H1 = media > 0
+    # p-valor para FDR posterior (Benjamini-Hochberg)
+    pvalue = 1.0
+    if not wfo_result.oos_trades.is_empty():
+        oos_pnls = wfo_result.oos_trades.get_column("net_pnl").to_list()
+        if len(oos_pnls) >= 5:
+            _, pvalue = _scipy_stats.ttest_1samp(oos_pnls, 0.0, alternative="greater")
+
     result = {
         # Identificacion
         "symbol":           symbol,
@@ -439,6 +483,8 @@ def evaluate_candidate(
         "hit_rate":         kpis.get("hit_rate", 0.0),
         "profit_factor":    kpis.get("profit_factor", 0.0),
         "expectancy":       kpis.get("expectancy", 0.0),
+        # Significancia estadistica
+        "pvalue":           float(pvalue),
         # Folds
         "n_folds":          n_folds,
         "n_folds_ok":       n_folds_ok,
@@ -486,21 +532,24 @@ def print_top_table(
     side_results.sort(key=lambda r: r["stability_score"], reverse=True)
     top = side_results[:top_n]
 
-    print(f"\n{'='*120}")
+    print(f"\n{'='*132}")
     print(f"TOP {top_n} {side} — Most Stable (Institutional)")
-    print(f"{'='*120}")
+    print(f"{'='*132}")
     print(f"{'Rank':>4}  {'Symbol':<12} {'Class':<8} {'Stab':>5} {'Fold%':>5} "
           f"{'RetAvg':>8} {'RetCV':>6} {'MinRet':>8} {'AvgPF':>6} "
-          f"{'WRstd':>6} {'N_OOS':>6} {'Status':<9}")
-    print("-" * 120)
+          f"{'WRstd':>6} {'N_OOS':>6} {'p-val':>7} {'BH':>3} {'Status':<9}")
+    print("-" * 132)
 
     for i, r in enumerate(top, 1):
         cv_str = f"{r['ret_cv']:.2f}" if not np.isnan(r.get("ret_cv", float("nan"))) else "  N/A"
+        bh_str = "YES" if r.get("bh_reject", False) else "no"
+        pval_str = f"{r.get('pvalue', 1.0):.4f}"
         print(f"{i:>4}  {r['symbol']:<12} {r['asset_class']:<8} "
               f"{r['stability_score']:>5.1f} {r['fold_consistency']:>4.0%} "
               f"{r['ret_avg']:>+7.1%} {cv_str:>6} "
               f"{r['min_ret']:>+7.1%} {r['avg_pf']:>6.2f} "
-              f"{r['wr_std']*100:>5.1f}% {r['n_oos']:>6} {r['status']:<9}")
+              f"{r['wr_std']*100:>5.1f}% {r['n_oos']:>6} "
+              f"{pval_str:>7} {bh_str:>3} {r['status']:<9}")
 
     if not top:
         print(f"  (sin candidatos {side} evaluados)")
@@ -683,6 +732,15 @@ def main():
     if not results:
         print(f"\nSin resultados WFO. Verificar datos M5 y screener. ({elapsed:.1f}s)")
         sys.exit(1)
+
+    # FDR — Benjamini-Hochberg (1995) sobre las N hipotesis evaluadas
+    pvals = [r.get("pvalue", 1.0) for r in results]
+    bh_flags = benjamini_hochberg(pvals, alpha=0.05)
+    for r, flag in zip(results, bh_flags):
+        r["bh_reject"] = flag
+    n_bh = sum(bh_flags)
+    print(f"\n  FDR Benjamini-Hochberg (α=0.05): {n_bh}/{len(results)} hipotesis "
+          f"rechazan H0 (media OOS > 0)")
 
     # Reportes
     top_long = print_top_table(results, "LONG", args.top_long)

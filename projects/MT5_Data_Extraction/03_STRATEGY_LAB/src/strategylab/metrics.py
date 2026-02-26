@@ -80,6 +80,38 @@ def sharpe_ratio(returns: list[float], bars_per_year: int = BARS_PER_YEAR_5M) ->
     return (mean_r / std) * math.sqrt(bars_per_year)
 
 
+def sharpe_daily_from_trades(trades_df: pl.DataFrame) -> float:
+    """Annualised Sharpe computed on daily aggregated returns (sqrt(252)).
+
+    Avoids the ~269x inflation that occurs when using sqrt(252*288) on sparse
+    per-trade PnLs (trades are not 5-min observations). Aggregates net_pnl by
+    exit date, then annualises with sqrt(252) trading days per year.
+
+    Falls back to trade-frequency annualisation when exit_time_utc is absent.
+    """
+    if trades_df.is_empty():
+        return 0.0
+    if "exit_time_utc" not in trades_df.columns:
+        # Fallback: annualise by trade frequency (trades/year)
+        pnls = trades_df.get_column("net_pnl").to_list()
+        hold = (trades_df.get_column("hold_bars").to_list()
+                if "hold_bars" in trades_df.columns else [1] * len(pnls))
+        n_bars = max(sum(hold), 1)
+        years = n_bars / BARS_PER_YEAR_5M
+        tpy = len(pnls) / years if years > 0 else float(len(pnls))
+        return sharpe_ratio(pnls, bars_per_year=max(round(tpy), 2))
+    # Aggregate PnL by exit date, annualise with sqrt(252) trading days/year
+    daily = (
+        trades_df
+        .with_columns(pl.col("exit_time_utc").cast(pl.Date).alias("_exit_date"))
+        .group_by("_exit_date")
+        .agg(pl.col("net_pnl").sum())
+        .sort("_exit_date")
+    )
+    daily_pnls = daily.get_column("net_pnl").to_list()
+    return sharpe_ratio(daily_pnls, bars_per_year=252)
+
+
 def sortino_ratio(returns: list[float], bars_per_year: int = BARS_PER_YEAR_5M) -> float:
     """Annualised Sortino ratio (Rf=0, downside deviation)."""
     if len(returns) < 2:
@@ -171,7 +203,7 @@ def compute_kpis(trades_df: pl.DataFrame,
         "n_trades": len(pnls),
         "total_return": tot_ret,
         "cagr": cagr(eq[0], eq[-1], n_bars_total, bars_per_year),
-        "sharpe": sharpe_ratio(pnls, bars_per_year),
+        "sharpe": sharpe_daily_from_trades(trades_df),
         "sortino": sortino_ratio(pnls, bars_per_year),
         "calmar": calmar_ratio(tot_ret, max_drawdown(eq)),
         "mdd": max_drawdown(eq),

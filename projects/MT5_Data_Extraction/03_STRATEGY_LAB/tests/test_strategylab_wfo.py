@@ -131,3 +131,9 @@ class TestRunWFO:
             min_trades_is=5,
         )
         assert len(result.folds) > 0
+        # all_combos_per_fold populated — enables PBO (Bailey 2014)
+        assert isinstance(result.all_combos_per_fold, dict)
+        if result.best_per_fold:
+            for fold_id in result.best_per_fold:
+                assert fold_id in result.all_combos_per_fold
+                assert len(result.all_combos_per_fold[fold_id]) >= 1

@@ -190,6 +190,7 @@ class WFOResult:
     """Complete WFO result across all folds."""
     folds: list[WFOFold]
     best_per_fold: dict[str, GridResult]
+    all_combos_per_fold: dict[str, list[GridResult]]  # Todos los combos OOS por fold — habilita PBO real (Bailey 2014)
     oos_trades: pl.DataFrame
     oos_kpis: dict
 
@@ -224,9 +225,10 @@ def run_wfo(
                             embargo_days=embargo_days)
 
     if min_folds > 0 and len(folds) < min_folds:
-        return WFOResult(folds=[], best_per_fold={}, oos_trades=pl.DataFrame(), oos_kpis={})
+        return WFOResult(folds=[], best_per_fold={}, all_combos_per_fold={}, oos_trades=pl.DataFrame(), oos_kpis={})
 
     best_per_fold: dict[str, GridResult] = {}
+    all_combos_per_fold: dict[str, list[GridResult]] = {}
     all_oos_trades: list[pl.DataFrame] = []
 
     for fold in folds:
@@ -245,6 +247,9 @@ def run_wfo(
 
         if not results:
             continue
+
+        # Guardar TODOS los combos OOS de este fold (para PBO posterior)
+        all_combos_per_fold[fold.fold_id] = results
 
         best = results[0]
         best_per_fold[fold.fold_id] = best
@@ -277,6 +282,7 @@ def run_wfo(
     return WFOResult(
         folds=folds,
         best_per_fold=best_per_fold,
+        all_combos_per_fold=all_combos_per_fold,
         oos_trades=oos_combined,
         oos_kpis=oos_kpis,
     )
