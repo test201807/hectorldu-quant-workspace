@@ -8,7 +8,7 @@ from pathlib import Path
 sys.path.insert(0, str(Path(__file__).resolve().parent.parent / "src"))
 
 from strategylab.config import RiskConfig
-from strategylab.risk import DailyRiskTracker, compute_position_size
+from strategylab.risk import DailyRiskTracker, compute_mt5_lots, compute_position_size
 
 
 class TestPositionSizing:
@@ -42,6 +42,79 @@ class TestPositionSizing:
         cfg = RiskConfig()
         size = compute_position_size(cfg, entry_price=100.0, sl_distance=1.0)
         assert cfg.min_pos_size <= size <= cfg.max_pos_size
+
+
+class TestFTMOPositionSizing:
+    """FTMO-aware position sizing (account_size_usd > 0)."""
+
+    def test_ftmo_basic_lots(self):
+        """account=$10k, risk=1%, SL=$5 → lots = 100/5 = 20, clamped to max=100."""
+        cfg = RiskConfig(account_size_usd=10_000, risk_per_trade=0.01,
+                         min_pos_size=1.0, max_pos_size=100.0)
+        lots = compute_position_size(cfg, entry_price=140.0, sl_distance=5.0)
+        assert abs(lots - 20.0) < 1e-9
+
+    def test_ftmo_clamped_to_max(self):
+        """Very tight SL → lots clipped to max_pos_size."""
+        cfg = RiskConfig(account_size_usd=10_000, risk_per_trade=0.05,
+                         min_pos_size=1.0, max_pos_size=50.0)
+        lots = compute_position_size(cfg, entry_price=100.0, sl_distance=0.10)
+        assert lots == 50.0  # clamped: raw = 10000*0.05/0.1 = 5000 → clipped
+
+    def test_ftmo_contract_size_forex(self):
+        """Forex lot: 1 lot = 100_000 units. Risk=$100, SL=10pips=$0.0010/unit.
+        lots = 100 / (0.0010 * 100_000) = 100 / 100 = 1.0 lot."""
+        cfg = RiskConfig(account_size_usd=10_000, risk_per_trade=0.01,
+                         contract_size=100_000, min_pos_size=0.01, max_pos_size=10.0)
+        lots = compute_position_size(cfg, entry_price=1.10, sl_distance=0.0010)
+        assert abs(lots - 1.0) < 1e-9
+
+    def test_ftmo_zero_account_uses_normalized(self):
+        """account_size_usd=0 uses original normalized formula."""
+        cfg = RiskConfig(account_size_usd=0, risk_per_trade=0.01,
+                         min_pos_size=0.25, max_pos_size=3.0)
+        size = compute_position_size(cfg, entry_price=100.0, sl_distance=2.0)
+        assert size == 0.25  # clamped to min (0.01/2 = 0.005 < 0.25)
+
+    def test_ftmo_config_fields_exist(self):
+        """RiskConfig has FTMO fields."""
+        cfg = RiskConfig()
+        assert hasattr(cfg, "account_size_usd")
+        assert hasattr(cfg, "contract_size")
+        assert cfg.account_size_usd == 0.0
+        assert cfg.contract_size == 1.0
+
+
+class TestComputeMT5Lots:
+    """compute_mt5_lots() utility tests."""
+
+    def test_basic_stock_cfd(self):
+        """NVDA: $10k account, 1% risk, SL=$6 → lots=16.67."""
+        lots = compute_mt5_lots(
+            account_usd=10_000, risk_per_trade=0.01,
+            sl_distance_price=6.0, contract_size=1.0,
+        )
+        assert abs(lots - 100.0 / 6.0) < 1e-9
+
+    def test_forex_100k_contract(self):
+        """EURUSD: $10k, 1% risk, SL=10pips=0.0010, contract=100_000 → 1 lot."""
+        lots = compute_mt5_lots(
+            account_usd=10_000, risk_per_trade=0.01,
+            sl_distance_price=0.0010, contract_size=100_000,
+        )
+        assert abs(lots - 1.0) < 1e-9
+
+    def test_zero_sl_returns_zero(self):
+        assert compute_mt5_lots(10_000, 0.01, 0.0) == 0.0
+
+    def test_zero_account_returns_zero(self):
+        assert compute_mt5_lots(0.0, 0.01, 5.0) == 0.0
+
+    def test_scales_with_account(self):
+        """Double account → double lots."""
+        l1 = compute_mt5_lots(10_000, 0.01, 5.0)
+        l2 = compute_mt5_lots(20_000, 0.01, 5.0)
+        assert abs(l2 - 2 * l1) < 1e-9
 
 
 class TestDailyRiskTracker:

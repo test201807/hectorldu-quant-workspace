@@ -9,8 +9,22 @@ from __future__ import annotations
 import math
 from dataclasses import dataclass
 from typing import Any
+from zoneinfo import ZoneInfo
 
 import polars as pl
+
+# FTMO resets daily PnL limits at midnight CET (UTC+1 winter / UTC+2 summer).
+# Using Europe/Paris which observes CET/CEST with correct DST transitions.
+_TZ_CET = ZoneInfo("Europe/Paris")
+
+
+def _to_cet_date(t: Any) -> Any:
+    """Convert UTC timestamp to CET/CEST date for FTMO daily reset."""
+    if hasattr(t, "astimezone"):
+        return t.astimezone(_TZ_CET).date()
+    if hasattr(t, "date") and callable(getattr(t, "date", None)):
+        return t.date()
+    return t
 
 from .config import CostsConfig, EngineConfig, RiskConfig
 from .costs import roundtrip_cost_dec
@@ -98,6 +112,9 @@ def run_engine(
     # Weekday
     dow_list = df.get_column("time_utc").dt.weekday().to_list()
 
+    # CET/CEST dates para FTMO daily reset (FTMO cuenta pérdida desde medianoche CET, no UTC)
+    cet_date_list = [_to_cet_date(t) for t in t_list]
+
     # Confirmation rolling
     confirm = engine_cfg.entry_confirm_bars
     conf_long = [False] * n
@@ -136,11 +153,7 @@ def run_engine(
         return None
 
     for idx in range(n):
-        bar_date = t_list[idx]
-        if hasattr(bar_date, "date"):
-            tracker.new_bar(bar_date.date() if callable(getattr(bar_date, "date", None)) else bar_date)
-        else:
-            tracker.new_bar(bar_date)
+        tracker.new_bar(cet_date_list[idx])
 
         # ---- EXIT LOGIC ----
         if pos != 0 and entry_idx is not None:

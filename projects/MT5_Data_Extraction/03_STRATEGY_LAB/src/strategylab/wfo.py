@@ -3,7 +3,8 @@
 from __future__ import annotations
 
 import itertools
-from dataclasses import dataclass
+from collections import Counter
+from dataclasses import dataclass, field
 from datetime import datetime, timedelta
 from typing import Any
 
@@ -193,6 +194,27 @@ class WFOResult:
     all_combos_per_fold: dict[str, list[GridResult]]  # Todos los combos OOS por fold — habilita PBO real (Bailey 2014)
     oos_trades: pl.DataFrame
     oos_kpis: dict
+    # Holdout final — últimos N meses reservados sin tocar durante WFO
+    holdout_trades: pl.DataFrame = field(default_factory=pl.DataFrame)
+    holdout_kpis: dict = field(default_factory=dict)
+
+
+def _modal_params(best_per_fold: dict[str, GridResult]) -> dict[str, Any]:
+    """Parámetros seleccionados con mayor frecuencia entre los folds WFO.
+
+    Usados para aplicar al holdout: el combo elegido más veces en IS
+    es el 'mejor representante' de la configuración para el periodo futuro.
+    """
+    if not best_per_fold:
+        return {}
+    counter: Counter = Counter()
+    params_by_key: dict = {}
+    for gr in best_per_fold.values():
+        key = frozenset(gr.params.items())
+        counter[key] += 1
+        params_by_key[key] = gr.params
+    most_common_key = counter.most_common(1)[0][0]
+    return params_by_key[most_common_key]
 
 
 def run_wfo(
@@ -210,19 +232,30 @@ def run_wfo(
     min_folds: int = 0,
     max_combos: int = 100,
     min_trades_is: int = 30,
+    holdout_months: int = 0,
 ) -> WFOResult:
     """Run complete walk-forward optimization.
 
     For each fold: grid search on IS, apply best params to OOS.
     Concatenate all OOS trades for final evaluation.
     Embargo gap between IS and OOS prevents leakage.
+
+    When holdout_months > 0, the last N months are reserved as a final
+    holdout set never touched during fold building or grid search. After
+    all folds complete, the most-selected params are applied to the
+    holdout to produce an unbiased final validation estimate.
     """
     t_col = df.get_column("time_utc").to_list()
     start = min(t_col)
     end = max(t_col)
 
-    folds = build_wfo_folds(start, end, is_months, oos_months, step_months,
-                            embargo_days=embargo_days)
+    # Reservar holdout si se solicita — los últimos holdout_months meses
+    holdout_start = end  # default: no holdout
+    if holdout_months > 0:
+        holdout_start = end - timedelta(days=int(holdout_months * 30.44))
+
+    folds = build_wfo_folds(start, holdout_start, is_months, oos_months,
+                            step_months, embargo_days=embargo_days)
 
     if min_folds > 0 and len(folds) < min_folds:
         return WFOResult(folds=[], best_per_fold={}, all_combos_per_fold={}, oos_trades=pl.DataFrame(), oos_kpis={})
@@ -279,10 +312,40 @@ def run_wfo(
     oos_combined = pl.concat(all_oos_trades) if all_oos_trades else pl.DataFrame()
     oos_kpis = compute_kpis(oos_combined) if not oos_combined.is_empty() else {}
 
+    # ── Holdout final ────────────────────────────────────────────────────
+    # Aplica los parámetros más frecuentemente seleccionados al periodo
+    # de holdout (nunca visto durante WFO). Validación final sin sesgo.
+    holdout_trades = pl.DataFrame()
+    holdout_kpis: dict = {}
+    if holdout_months > 0 and best_per_fold:
+        modal = _modal_params(best_per_fold)
+        if modal:
+            h_engine_cfg = EngineConfig(**modal)
+            h_trades = run_engine(
+                df=df,
+                fold_id="HOLDOUT",
+                is_start=start,
+                is_end=holdout_start,
+                oos_start=holdout_start,
+                oos_end=end,
+                signal_long=signal_long,
+                signal_short=signal_short,
+                engine_cfg=h_engine_cfg,
+                costs_cfg=costs_cfg,
+                risk_cfg=risk_cfg,
+                symbol=symbol,
+            )
+            h_df = trades_to_dataframe(h_trades)
+            if not h_df.is_empty():
+                holdout_trades = h_df.filter(pl.col("segment") == "OOS")
+            holdout_kpis = compute_kpis(holdout_trades) if not holdout_trades.is_empty() else {}
+
     return WFOResult(
         folds=folds,
         best_per_fold=best_per_fold,
         all_combos_per_fold=all_combos_per_fold,
         oos_trades=oos_combined,
         oos_kpis=oos_kpis,
+        holdout_trades=holdout_trades,
+        holdout_kpis=holdout_kpis,
     )

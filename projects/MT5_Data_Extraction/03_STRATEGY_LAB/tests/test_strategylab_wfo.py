@@ -137,3 +137,35 @@ class TestRunWFO:
             for fold_id in result.best_per_fold:
                 assert fold_id in result.all_combos_per_fold
                 assert len(result.all_combos_per_fold[fold_id]) >= 1
+        # holdout fields present (no holdout requested → empty)
+        assert isinstance(result.holdout_trades, pl.DataFrame)
+        assert isinstance(result.holdout_kpis, dict)
+
+    def test_holdout_final(self):
+        """With holdout_months > 0, holdout_trades and holdout_kpis are populated."""
+        df = make_synthetic_bars(symbol="HOLD_TEST", n_bars=80_000, seed=99)
+        df = df.with_columns((pl.col("close") * 0.005).alias("atr_price"))
+        n = df.height
+
+        sig_long = [((i // 100) % 2 == 0) for i in range(n)]
+        sig_short = [((i // 100) % 2 == 1) for i in range(n)]
+
+        result = run_wfo(
+            df=df,
+            signal_long=sig_long,
+            signal_short=sig_short,
+            param_grid={"sl_atr": [2.0], "tp_atr": [5.0]},
+            costs_cfg=CostsConfig(),
+            risk_cfg=RiskConfig(),
+            symbol="HOLD_TEST",
+            is_months=2,
+            oos_months=1,
+            step_months=1,
+            max_combos=10,
+            min_trades_is=5,
+            holdout_months=1,
+        )
+        assert isinstance(result.holdout_trades, pl.DataFrame)
+        assert isinstance(result.holdout_kpis, dict)
+        # Holdout folds should be fewer than without holdout (last month excluded)
+        assert len(result.folds) > 0

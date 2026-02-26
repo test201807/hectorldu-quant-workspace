@@ -11,13 +11,57 @@ def compute_position_size(
     sl_distance: float,
     equity: float = 1.0,
 ) -> float:
-    """Risk-based position sizing. Returns size in units."""
+    """Risk-based position sizing.
+
+    Modo normalizado (account_size_usd = 0, default):
+        Devuelve tamaño normalizado (fracción de equity = 1.0) para el motor
+        interno de backtest. Fórmula: equity * risk% / sl_distance.
+
+    Modo FTMO-aware (account_size_usd > 0):
+        Devuelve lotes MT5 directamente: (account * risk%) / (sl_distance * contract_size)
+        Para acciones US CFD (contract_size=1): lots = risk_USD / sl_distance_precio
+        Ejemplo: account=$10k, risk=1%, SL=$5/acción → 20 lotes (acciones)
+    """
     if sl_distance <= 0 or entry_price <= 0:
         return 0.0
-    risk_amount = equity * risk_config.risk_per_trade
-    raw_size = risk_amount / sl_distance
-    clamped = max(risk_config.min_pos_size, min(risk_config.max_pos_size, raw_size))
-    return clamped
+    if risk_config.account_size_usd > 0:
+        # FTMO-aware: lotes MT5 = riesgo_USD / (distancia_SL_precio × contract_size)
+        risk_usd = risk_config.account_size_usd * risk_config.risk_per_trade
+        raw_size = risk_usd / (sl_distance * risk_config.contract_size)
+    else:
+        risk_amount = equity * risk_config.risk_per_trade
+        raw_size = risk_amount / sl_distance
+    return max(risk_config.min_pos_size, min(risk_config.max_pos_size, raw_size))
+
+
+def compute_mt5_lots(
+    account_usd: float,
+    risk_per_trade: float,
+    sl_distance_price: float,
+    contract_size: float = 1.0,
+) -> float:
+    """Calcula lotes MT5 para stock CFDs con riesgo fijo en USD.
+
+    Fórmula directa para colocar órdenes en MT5 desde una cuenta FTMO:
+        lots = (account_usd × risk_per_trade) / (sl_distance_price × contract_size)
+
+    Args:
+        account_usd:        Balance de la cuenta FTMO (e.g. 10_000)
+        risk_per_trade:     Fracción del account a arriesgar (e.g. 0.01 = 1%)
+        sl_distance_price:  Distancia del SL en precio (ATR × sl_mult, en $)
+        contract_size:      Unidades por lote en MT5 (1.0 para acciones US CFD,
+                            100_000 para pares forex)
+
+    Returns:
+        Lotes para la orden MT5 (float, sin clipear — el trader decide el max).
+
+    Ejemplo:
+        NVDA, account=$10k, risk=1%, ATR=$3, SL=2×ATR=$6, contract_size=1
+        → lots = 10_000 × 0.01 / (6 × 1) = 16.67 lotes (acciones)
+    """
+    if sl_distance_price <= 0 or contract_size <= 0 or account_usd <= 0:
+        return 0.0
+    return (account_usd * risk_per_trade) / (sl_distance_price * contract_size)
 
 
 class DailyRiskTracker:

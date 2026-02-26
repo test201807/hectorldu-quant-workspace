@@ -34,6 +34,12 @@ class RiskConfig:
     max_drawdown_cap: float = -0.15
     max_trades_per_day: int = 3
     max_positions: int = 1
+    # FTMO-aware position sizing (Tier 3)
+    # Cuando account_size_usd > 0, compute_position_size() devuelve lotes MT5
+    # directamente aplicables al servidor: lots = (account * risk%) / sl_distance
+    # contract_size = 1.0 para acciones US CFD (1 lot = 1 acción en MT5)
+    account_size_usd: float = 0.0   # 0 = sizing normalizado (interno)
+    contract_size: float = 1.0      # MT5: 1 para acciones, 100_000 para forex
 
 
 @dataclass
