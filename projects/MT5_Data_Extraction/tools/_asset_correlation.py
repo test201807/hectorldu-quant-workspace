@@ -217,22 +217,23 @@ def recommend_max_positions(corr: np.ndarray, symbols: list[str]) -> dict:
     max_rho = float(max(p["rho"] for p in pairs)) if pairs else 0.0
     min_rho = float(min(p["rho"] for p in pairs)) if pairs else 0.0
 
-    # Recomendación
-    if max_rho >= 0.70:
+    # Recomendación — umbral 0.60 según spec Tier 1:
+    # "Si ρ > 0.6, operar máximo 1-2 simultáneamente"
+    if max_rho >= 0.60:
         rec_max  = 1
-        rec_text = ("Correlacion maxima >= 0.70. MAX 1 posicion simultanea. "
-                    "Abrir una segunda cuando la primera ya no esta activa.")
-    elif avg_rho >= 0.50:
+        rec_text = ("Correlacion maxima >= 0.60 (umbral spec). MAX 1 posicion simultanea. "
+                    "Riesgo alto de drawdown conjunto si el mercado cae.")
+    elif avg_rho >= 0.40:
         rec_max  = 2
-        rec_text = ("Correlacion media elevada (>= 0.50). MAX 2 posiciones "
-                    "simultaneas. Priorizar activos con menor rho entre si.")
-    elif avg_rho >= 0.30:
+        rec_text = ("Correlacion media >= 0.40. MAX 2 posiciones simultaneas. "
+                    "Priorizar el par con menor rho entre si.")
+    elif avg_rho >= 0.20:
         rec_max  = 2
-        rec_text = ("Correlacion media moderada (0.30-0.50). MAX 2 posiciones, "
-                    "aceptable. Los 5 activos no son independientes.")
+        rec_text = ("Correlacion media moderada (0.20-0.40). MAX 2 posiciones, "
+                    "aceptable con monitoreo diario.")
     else:
         rec_max  = 3
-        rec_text = ("Correlacion baja (<0.30). Hasta 3 posiciones simultaneas "
+        rec_text = ("Correlacion baja (<0.20). Hasta 3 posiciones simultaneas "
                     "manteniendo discipline FTMO.")
 
     # Advertencia especial para el grupo tech US (NVDA/META/TSLA/AAPL)
@@ -325,8 +326,8 @@ def print_report(
 
 def main() -> None:
     parser = argparse.ArgumentParser(description="Asset Correlation Analyzer")
-    parser.add_argument("--period", choices=["all", "oos", "is"], default="all",
-                        help="Periodo de datos a analizar (default: all)")
+    parser.add_argument("--period", choices=["all", "oos", "is"], default="oos",
+                        help="Periodo de datos a analizar (default: oos — spec Tier 1)")
     parser.add_argument("--save", action="store_true",
                         help="Guardar resultados en outputs/screening/")
     args = parser.parse_args()
@@ -337,6 +338,16 @@ def main() -> None:
 
     mat = build_return_matrix(data_root, period=args.period)
     symbols = [c for c in mat.columns if c != "date"]
+
+    # Fallback: si hay muy pocas fechas comunes (típico cuando AIRF tiene
+    # datos escasos al final del dataset), usar periodo completo.
+    MIN_DAYS_REQUIRED = 60
+    if mat.height < MIN_DAYS_REQUIRED and args.period != "all":
+        print(f"  WARN: solo {mat.height} dias comunes en periodo '{args.period}' "
+              f"(minimo {MIN_DAYS_REQUIRED}). Usando 'all' para resultados fiables.")
+        mat = build_return_matrix(data_root, period="all")
+        symbols = [c for c in mat.columns if c != "date"]
+
     print(f"Fechas comunes: {mat.height} dias | "
           f"rango: {mat['date'].min()} — {mat['date'].max()}")
 

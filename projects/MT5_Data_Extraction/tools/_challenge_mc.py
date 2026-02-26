@@ -36,11 +36,13 @@ sys.stdout.reconfigure(encoding="utf-8")
 
 PROJECT = Path(__file__).parent.parent
 
-# ── FTMO Challenge rules ($25k account) ─────────────────────────────
-CHALLENGE_CAPITAL        = 25_000
-CHALLENGE_DAILY_MAX_LOSS = 1_250   # 5% daily
-CHALLENGE_TOTAL_MAX_LOSS = 2_500   # 10% total
-CHALLENGE_PROFIT_TARGET  = 1_250   # 5% target
+# ── FTMO Challenge rules ($10k account — spec Tier 1) ────────────────
+# $500 daily (5%), $1,000 total (10%), $1,000 target (10%)
+# Fuente: análisis Tier 1 original. Para $25k usar --capital 25000.
+CHALLENGE_CAPITAL        = 10_000
+CHALLENGE_DAILY_MAX_LOSS =    500   # 5% daily
+CHALLENGE_TOTAL_MAX_LOSS =  1_000   # 10% total
+CHALLENGE_PROFIT_TARGET  =  1_000   # 10% target
 CHALLENGE_MIN_DAYS       = 2
 DEFAULT_RISK             = 75
 DEFAULT_SIMS             = 1_000
@@ -181,6 +183,10 @@ def run_mc(
     n_sims: int = DEFAULT_SIMS,
     block_size: int = DEFAULT_BLOCK,
     seed: int = 42,
+    initial_capital: float = CHALLENGE_CAPITAL,
+    daily_max_loss: float = CHALLENGE_DAILY_MAX_LOSS,
+    total_max_loss: float = CHALLENGE_TOTAL_MAX_LOSS,
+    profit_target: float = CHALLENGE_PROFIT_TARGET,
 ) -> dict:
     """Ejecuta Monte Carlo bootstrap y retorna distribución de resultados."""
     pos_notional, sl_return = compute_sizing(oos, pnl_col, risk_per_trade_usd)
@@ -195,7 +201,11 @@ def run_mc(
     results = []
     for _ in range(n_sims):
         boot_pnl, boot_dates = block_bootstrap(pnl_usd, dates, block_size, rng)
-        r = simulate_one(boot_pnl, boot_dates.tolist())
+        r = simulate_one(boot_pnl, boot_dates.tolist(),
+                         initial_capital=initial_capital,
+                         daily_max_loss=daily_max_loss,
+                         total_max_loss=total_max_loss,
+                         profit_target=profit_target)
         results.append(r)
 
     # Métricas agregadas
@@ -228,10 +238,10 @@ def run_mc(
             "n_oos_trades": len(pnl_usd),
         },
         "challenge_rules": {
-            "capital": CHALLENGE_CAPITAL,
-            "daily_max_loss": CHALLENGE_DAILY_MAX_LOSS,
-            "total_max_loss": CHALLENGE_TOTAL_MAX_LOSS,
-            "profit_target": CHALLENGE_PROFIT_TARGET,
+            "capital": initial_capital,
+            "daily_max_loss": daily_max_loss,
+            "total_max_loss": total_max_loss,
+            "profit_target": profit_target,
             "min_trading_days": CHALLENGE_MIN_DAYS,
         },
         "mc_summary": {
@@ -261,12 +271,20 @@ def run_deterministic(
     oos: pl.DataFrame,
     pnl_col: str,
     risk_per_trade_usd: float = DEFAULT_RISK,
+    initial_capital: float = CHALLENGE_CAPITAL,
+    daily_max_loss: float = CHALLENGE_DAILY_MAX_LOSS,
+    total_max_loss: float = CHALLENGE_TOTAL_MAX_LOSS,
+    profit_target: float = CHALLENGE_PROFIT_TARGET,
 ) -> dict:
     """Corre el challenge una sola vez en orden cronológico (referencia)."""
     pos_notional, sl_return = compute_sizing(oos, pnl_col, risk_per_trade_usd)
     pnl_usd = (oos[pnl_col].to_numpy() * pos_notional)
     dates   = oos["entry_time_utc"].cast(pl.Date).to_numpy().tolist()
-    result  = simulate_one(pnl_usd, dates)
+    result  = simulate_one(pnl_usd, dates,
+                           initial_capital=initial_capital,
+                           daily_max_loss=daily_max_loss,
+                           total_max_loss=total_max_loss,
+                           profit_target=profit_target)
     result["pos_notional"] = round(pos_notional, 2)
     result["sl_return_median"] = round(sl_return, 6)
     return result
@@ -352,16 +370,19 @@ def print_report(mc: dict, det: dict) -> None:
 
 def main() -> None:
     parser = argparse.ArgumentParser(description="Challenge MC Simulator")
-    parser.add_argument("--risk",  type=float, default=DEFAULT_RISK,
+    parser.add_argument("--risk",    type=float, default=DEFAULT_RISK,
                         help=f"Risk per trade USD (default {DEFAULT_RISK})")
-    parser.add_argument("--sims",  type=int,   default=DEFAULT_SIMS,
+    parser.add_argument("--capital", type=float, default=CHALLENGE_CAPITAL,
+                        help=f"Capital cuenta FTMO (default {CHALLENGE_CAPITAL} = $10k). "
+                             f"Usar 25000 para cuenta $25k.")
+    parser.add_argument("--sims",    type=int,   default=DEFAULT_SIMS,
                         help=f"Numero de simulaciones MC (default {DEFAULT_SIMS})")
-    parser.add_argument("--block", type=int,   default=DEFAULT_BLOCK,
+    parser.add_argument("--block",   type=int,   default=DEFAULT_BLOCK,
                         help=f"Block size para bootstrap (default {DEFAULT_BLOCK})")
-    parser.add_argument("--mode",  choices=["base", "stress"], default="base")
-    parser.add_argument("--seed",  type=int,   default=42)
-    parser.add_argument("--run",   default="latest")
-    parser.add_argument("--save",  action="store_true",
+    parser.add_argument("--mode",    choices=["base", "stress"], default="base")
+    parser.add_argument("--seed",    type=int,   default=42)
+    parser.add_argument("--run",     default="latest")
+    parser.add_argument("--save",    action="store_true",
                         help="Guardar JSON en outputs/challenge_eval/")
     args = parser.parse_args()
 
@@ -375,8 +396,24 @@ def main() -> None:
     oos, pnl_col = load_oos_trades(run_dir, args.mode)
     print(f"OOS trades: {oos.height}  |  mode: {pnl_col}")
 
+    # Derivar límites proporcionales al capital elegido
+    daily_pct  = CHALLENGE_DAILY_MAX_LOSS / CHALLENGE_CAPITAL   # 5%
+    total_pct  = CHALLENGE_TOTAL_MAX_LOSS  / CHALLENGE_CAPITAL   # 10%
+    target_pct = CHALLENGE_PROFIT_TARGET   / CHALLENGE_CAPITAL   # 10%
+    cap = args.capital
+    daily_usd  = cap * daily_pct
+    total_usd  = cap * total_pct
+    target_usd = cap * target_pct
+
+    print(f"Capital: ${cap:,.0f}  |  daily=${daily_usd:,.0f}  "
+          f"total=${total_usd:,.0f}  target=${target_usd:,.0f}")
+
     # Referencia determinista
-    det = run_deterministic(oos, pnl_col, args.risk)
+    det = run_deterministic(oos, pnl_col, args.risk,
+                            initial_capital=cap,
+                            daily_max_loss=daily_usd,
+                            total_max_loss=total_usd,
+                            profit_target=target_usd)
 
     # Monte Carlo
     print(f"Corriendo {args.sims:,} simulaciones MC (block={args.block})...")
@@ -386,6 +423,10 @@ def main() -> None:
         n_sims=args.sims,
         block_size=args.block,
         seed=args.seed,
+        initial_capital=cap,
+        daily_max_loss=daily_usd,
+        total_max_loss=total_usd,
+        profit_target=target_usd,
     )
 
     print_report(mc, det)
