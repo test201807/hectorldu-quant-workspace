@@ -151,6 +151,12 @@ def run_engine(
             hi = float(h_list[idx]) if _is_finite(h_list[idx]) else float(c_list[idx])
             lo = float(l_list[idx]) if _is_finite(l_list[idx]) else float(c_list[idx])
 
+            # Update floating PnL so tracker reflects FTMO-style equity
+            # (open losses count against daily and total drawdown limits)
+            _close_now = float(c_list[idx]) if _is_finite(c_list[idx]) else entry_price
+            _sign_f = 1.0 if pos == 1 else -1.0
+            tracker.update_floating_pnl(_sign_f * (_close_now / entry_price - 1.0) - cost_rt)
+
             exit_reason: str | None = None
             exit_price_val = 0.0
 
@@ -185,6 +191,10 @@ def run_engine(
             if exit_reason is None and engine_cfg.mon_fri_only and _is_weekend(dow_list[idx]):
                 exit_reason, exit_price_val = "WEEKEND", float(c_list[idx])
 
+            # DAILY_CAP: floating + closed daily PnL breaches daily loss limit
+            if tracker.is_daily_capped():
+                exit_reason, exit_price_val = "DAILY_CAP", float(c_list[idx])
+            # DD_KILL overrides all — drawdown now includes floating PnL
             if tracker.is_killed():
                 exit_reason, exit_price_val = "DD_KILL", float(c_list[idx])
 
@@ -205,6 +215,7 @@ def run_engine(
                     pos_size=pos_size,
                 ))
                 tracker.record_trade(net)
+                tracker.update_floating_pnl(0.0)  # position closed
                 pos = 0
                 entry_idx = None
                 cooldown_cnt = engine_cfg.cooldown_bars

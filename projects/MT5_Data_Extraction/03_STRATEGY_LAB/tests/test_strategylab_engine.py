@@ -137,7 +137,7 @@ class TestTradesToDataframe:
 class TestExitReasons:
     """Verify exit reasons are valid."""
 
-    VALID_REASONS = {"SL", "TP", "TRAIL", "TIME", "REGIME_OFF", "WEEKEND", "DD_KILL"}
+    VALID_REASONS = {"SL", "TP", "TRAIL", "TIME", "REGIME_OFF", "WEEKEND", "DD_KILL", "DAILY_CAP"}
 
     def test_all_exit_reasons_valid(self):
         df, sl, ss = _make_data_and_signals(n=5000, seed=123)

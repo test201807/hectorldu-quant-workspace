@@ -111,3 +111,88 @@ class TestDailyRiskTracker:
         tracker.reset(equity=2.0)
         assert tracker.equity == 2.0
         assert tracker.can_trade()
+
+
+class TestDailyRiskTrackerFloating:
+    """Tests for FTMO-style floating PnL tracking."""
+
+    def test_effective_equity_no_floating(self):
+        tracker = DailyRiskTracker(RiskConfig())
+        assert tracker.effective_equity == 1.0
+
+    def test_effective_equity_with_floating(self):
+        tracker = DailyRiskTracker(RiskConfig())
+        tracker.update_floating_pnl(-0.03)
+        assert abs(tracker.effective_equity - 0.97) < 1e-10
+
+    def test_floating_blocks_can_trade_via_daily_cap(self):
+        cfg = RiskConfig(daily_loss_cap=-0.02, max_trades_per_day=100)
+        tracker = DailyRiskTracker(cfg)
+        tracker.new_bar("2024-01-01")
+        # No closed trade, but open position is down -3%
+        tracker.update_floating_pnl(-0.03)
+        assert not tracker.can_trade()  # -0.03 < -0.02 cap
+
+    def test_floating_does_not_block_when_within_cap(self):
+        cfg = RiskConfig(daily_loss_cap=-0.02, max_trades_per_day=100)
+        tracker = DailyRiskTracker(cfg)
+        tracker.new_bar("2024-01-01")
+        tracker.update_floating_pnl(-0.01)  # within cap
+        assert tracker.can_trade()
+
+    def test_drawdown_includes_floating(self):
+        cfg = RiskConfig()
+        tracker = DailyRiskTracker(cfg)
+        # gain via closed trade → peak = 1.10
+        tracker.record_trade(0.10)
+        # open position now down -0.08 (floating)
+        tracker.update_floating_pnl(-0.08)
+        dd = tracker.drawdown()
+        expected = (1.10 - 0.08 - 1.10) / 1.10  # = -0.08/1.10
+        assert abs(dd - expected) < 1e-10
+
+    def test_is_killed_via_floating(self):
+        cfg = RiskConfig(max_drawdown_cap=-0.10)
+        tracker = DailyRiskTracker(cfg)
+        # open position is down -12% — no closed trades
+        tracker.update_floating_pnl(-0.12)
+        assert tracker.is_killed()
+
+    def test_is_daily_capped(self):
+        cfg = RiskConfig(daily_loss_cap=-0.02, max_trades_per_day=100)
+        tracker = DailyRiskTracker(cfg)
+        tracker.new_bar("2024-01-01")
+        tracker.record_trade(-0.01)       # -1% closed
+        tracker.update_floating_pnl(-0.015)  # -1.5% floating → total -2.5%
+        assert tracker.is_daily_capped()
+
+    def test_update_floating_updates_peak(self):
+        tracker = DailyRiskTracker(RiskConfig())
+        # floating gain pushes effective equity above 1.0
+        tracker.update_floating_pnl(0.05)
+        assert tracker._peak_equity == 1.05
+
+    def test_new_bar_preserves_floating(self):
+        """Floating PnL is NOT reset on new day (position stays open)."""
+        cfg = RiskConfig(daily_loss_cap=-0.02, max_trades_per_day=100)
+        tracker = DailyRiskTracker(cfg)
+        tracker.new_bar("2024-01-01")
+        tracker.update_floating_pnl(-0.03)
+        tracker.new_bar("2024-01-02")  # new day
+        # daily_pnl resets to 0, but floating persists
+        assert tracker._floating_pnl == -0.03
+
+    def test_reset_clears_floating(self):
+        tracker = DailyRiskTracker(RiskConfig())
+        tracker.update_floating_pnl(-0.05)
+        tracker.reset(equity=1.0)
+        assert tracker._floating_pnl == 0.0
+        assert tracker.effective_equity == 1.0
+
+    def test_update_floating_zero_after_close(self):
+        """After closing a position, floating resets to 0."""
+        tracker = DailyRiskTracker(RiskConfig())
+        tracker.update_floating_pnl(-0.03)
+        assert tracker.effective_equity < 1.0
+        tracker.update_floating_pnl(0.0)
+        assert tracker.effective_equity == 1.0

@@ -147,16 +147,22 @@ def main():
     # ══════════════════════════════════════════════════════
     print("\n=== COST MONOTONICITY ===")
     cost_df = pl.read_csv(pack_dir / "cost_sensitivity.csv")
+    T.check("cost_sensitivity_rows", cost_df.height == 6,
+            f"expected 6 rows, got {cost_df.height}")
+
     if cost_df.height >= 2:
         rets = cost_df["total_return_pct"].to_list()
         T.check("cost_return_monotonic",
                 all(rets[i] >= rets[i + 1] for i in range(len(rets) - 1)),
                 f"returns: {rets}")
 
-        sharpes = cost_df["sharpe_annual"].to_list()
-        T.check("cost_sharpe_monotonic",
-                all(sharpes[i] >= sharpes[i + 1] for i in range(len(sharpes) - 1)),
-                f"sharpes: {sharpes}")
+        # Sharpe monotonicity only meaningful while equity > 0 (ret > -100%)
+        valid = cost_df.filter(pl.col("total_return_pct") > -100)
+        if valid.height >= 2:
+            sharpes = valid["sharpe_annual"].to_list()
+            T.check("cost_sharpe_monotonic",
+                    all(sharpes[i] >= sharpes[i + 1] for i in range(len(sharpes) - 1)),
+                    f"sharpes (solvent only): {sharpes}")
 
     # ══════════════════════════════════════════════════════
     # TEST 7: Metrics consistency with existing artifacts
@@ -197,6 +203,23 @@ def main():
             f"files: {len(manifest.get('files', {}))}")
     T.check("manifest_oos_trades", manifest.get("oos_trades", 0) > 0,
             f"oos_trades={manifest.get('oos_trades')}")
+    T.check("manifest_cost_source", "cost_source" in manifest,
+            f"keys: {list(manifest.keys())}")
+    T.check("manifest_daily_series_type", manifest.get("daily_series_type") == "calendar",
+            f"got: {manifest.get('daily_series_type')}")
+
+    # ══════════════════════════════════════════════════════
+    # TEST 8b: DSR z-score sanity (not -43 artefact)
+    # ══════════════════════════════════════════════════════
+    print("\n=== DSR SANITY ===")
+    pbo_df = pl.read_csv(pack_dir / "pbo_report.csv")
+    dsr_z_row = pbo_df.filter(pl.col("metric") == "dsr_dsr_z")
+    if dsr_z_row.height > 0:
+        dsr_z_val = float(dsr_z_row["value"][0])
+        T.check("dsr_z_reasonable", -10 < dsr_z_val < 10,
+                f"dsr_z={dsr_z_val} (should be in [-10, 10])")
+    else:
+        T.check("dsr_z_found", False, "dsr_z metric not found in pbo_report")
 
     # ══════════════════════════════════════════════════════
     # TEST 9: Fold metrics sanity
