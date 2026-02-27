@@ -1,0 +1,19 @@
+{
+  "version": "v1.0.0",
+  "account_type": "standard",
+  "starting_balance": 10000,
+  "daily_max_loss": 500,
+  "max_loss": 1000,
+  "profit_target": 500,
+  "min_trading_days": 2,
+  "risk_per_trade_pct": 0.0025,
+  "risk_per_trade_usd": 25,
+  "circuit_breaker_pct": 1.0,
+  "_notes": {
+    "daily_max_loss": "5% of starting_balance",
+    "max_loss": "10% of starting_balance",
+    "profit_target": "5% of starting_balance",
+    "circuit_breaker_pct": "fraction of daily_max_loss before blocking new trades (1.0=100%)",
+    "account_type": "standard | swing"
+  }
+}

@@ -22,13 +22,17 @@ import numpy as np
 
 PROJECT = Path(__file__).parent.parent
 
-# ── Challenge defaults ──────────────────────────────────────────────
-CHALLENGE_CAPITAL         = 25_000
-CHALLENGE_DAILY_MAX_LOSS  = 1_250
-CHALLENGE_TOTAL_MAX_LOSS  = 2_500
-CHALLENGE_PROFIT_TARGET   = 1_250
-CHALLENGE_MIN_DAYS        = 2
-DEFAULT_RISK              = 75
+# ── Challenge defaults — leídos del ruleset único ───────────────────
+import sys as _sys
+_sys.path.insert(0, str(Path(__file__).parent))
+from challenge_config import (  # noqa: E402
+    CAPITAL as CHALLENGE_CAPITAL,
+    DAILY_MAX as CHALLENGE_DAILY_MAX_LOSS,
+    MAX_LOSS as CHALLENGE_TOTAL_MAX_LOSS,
+    TARGET as CHALLENGE_PROFIT_TARGET,
+    MIN_DAYS as CHALLENGE_MIN_DAYS,
+    RISK_USD as DEFAULT_RISK,
+)
 
 
 def find_latest_trend_run():

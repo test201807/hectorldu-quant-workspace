@@ -25,6 +25,31 @@ class CostsConfig:
 
 
 @dataclass
+class ChallengeConfig:
+    """Prop-firm funding challenge parameters (single source of truth).
+
+    Corresponds to 03_STRATEGY_LAB/configs/challenge_ruleset.json.
+    account_type: "standard" | "swing"
+    circuit_breaker_pct: fraction of daily_max_loss before blocking new trades.
+    """
+    account_type: str = "standard"
+    starting_balance: float = 10_000.0
+    daily_max_loss: float = 500.0
+    max_loss: float = 1_000.0
+    profit_target: float = 500.0
+    min_trading_days: int = 2
+    risk_per_trade_pct: float = 0.0025
+    circuit_breaker_pct: float = 1.0
+
+    @classmethod
+    def from_json(cls, path: str | Path) -> "ChallengeConfig":
+        """Load from challenge_ruleset.json."""
+        d = json.loads(Path(path).read_text(encoding="utf-8"))
+        valid = {f for f in cls.__dataclass_fields__}
+        return cls(**{k: v for k, v in d.items() if k in valid})
+
+
+@dataclass
 class RiskConfig:
     risk_per_trade: float = 0.01
     max_pos_size: float = 3.0
@@ -34,6 +59,7 @@ class RiskConfig:
     max_drawdown_cap: float = -0.15
     max_trades_per_day: int = 3
     max_positions: int = 1
+    account_type: str = "standard"   # "standard" | "swing"
     # FTMO-aware position sizing (Tier 3)
     # Cuando account_size_usd > 0, compute_position_size() devuelve lotes MT5
     # directamente aplicables al servidor: lots = (account * risk%) / sl_distance

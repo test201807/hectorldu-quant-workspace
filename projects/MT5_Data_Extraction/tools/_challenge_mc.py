@@ -36,15 +36,17 @@ sys.stdout.reconfigure(encoding="utf-8")
 
 PROJECT = Path(__file__).parent.parent
 
-# ── FTMO Challenge rules ($10k account — spec Tier 1) ────────────────
-# $500 daily (5%), $1,000 total (10%), $1,000 target (10%)
-# Fuente: análisis Tier 1 original. Para $25k usar --capital 25000.
-CHALLENGE_CAPITAL        = 10_000
-CHALLENGE_DAILY_MAX_LOSS =    500   # 5% daily
-CHALLENGE_TOTAL_MAX_LOSS =  1_000   # 10% total
-CHALLENGE_PROFIT_TARGET  =  1_000   # 10% target
-CHALLENGE_MIN_DAYS       = 2
-DEFAULT_RISK             = 75
+# ── FTMO Challenge rules — leídos del ruleset único ──────────────────
+import sys as _sys
+_sys.path.insert(0, str(Path(__file__).parent))
+from challenge_config import (  # noqa: E402
+    CAPITAL as CHALLENGE_CAPITAL,
+    DAILY_MAX as CHALLENGE_DAILY_MAX_LOSS,
+    MAX_LOSS as CHALLENGE_TOTAL_MAX_LOSS,
+    TARGET as CHALLENGE_PROFIT_TARGET,
+    MIN_DAYS as CHALLENGE_MIN_DAYS,
+    RISK_USD as DEFAULT_RISK,
+)
 DEFAULT_SIMS             = 1_000
 DEFAULT_BLOCK            = 10      # block size (trades) para bootstrap
 
