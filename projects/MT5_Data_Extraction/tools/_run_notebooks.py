@@ -12,7 +12,7 @@ notebooks = [
     ("NB4", "04_RANGE_M5_Strategy_v1.ipynb"),
 ]
 
-ep = ExecutePreprocessor(timeout=1200, kernel_name='python3')
+ep = ExecutePreprocessor(timeout=3600, kernel_name='python3')
 
 for label, nb_file in notebooks:
     print(f"\n{'='*60}")

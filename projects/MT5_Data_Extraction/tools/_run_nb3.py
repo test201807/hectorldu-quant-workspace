@@ -11,7 +11,7 @@ nb_file = "03_TREND_M5_Strategy_v2.ipynb"
 print(f"Executing NB3: {nb_file}")
 print("="*60)
 
-ep = ExecutePreprocessor(timeout=1200, kernel_name='python3')
+ep = ExecutePreprocessor(timeout=3600, kernel_name='python3')
 
 try:
     with open(nb_file, encoding='utf-8') as f:
